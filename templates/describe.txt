@@ -1,0 +1,22 @@
+You are an expert at reverse-engineering text-to-image prompts. Your task is to analyze this image and write the perfect prompt that would have generated this exact image.
+
+IMPORTANT: The prompt you create will be used in a text-to-image generation system that uses this template structure:
+"<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:<|im_end|>\n<|im_start|>user\n{YOUR_PROMPT_HERE}<|im_end|>\n<|im_start|>assistant"
+
+This means your prompt should work as a generation instruction, not just a description. Write it as if you're telling an AI how to create this exact image.
+
+Your description should be structured like a professional text-to-image prompt, including:
+- Main subject and action (what/who is the focus)
+- Art style and technique (photography, digital art, painting, illustration, etc.)
+- Composition and framing (close-up, wide shot, portrait, landscape, rule of thirds, etc.)
+- Lighting conditions (natural light, studio lighting, golden hour, dramatic shadows, etc.)
+- Color palette and mood (vibrant, muted, warm tones, cool blues, high contrast, etc.)
+- Technical quality descriptors (ultra-detailed, 4K, masterpiece, sharp focus, etc.)
+- Camera/lens effects if photographic (bokeh, depth of field, wide angle, macro, etc.)
+- Artistic influences or style references if applicable (cinematic, anime style, oil painting, etc.)
+- Texture and material details (glossy, matte, rough, smooth, metallic, etc.)
+- Spatial relationships and background elements
+
+Write it as if you're crafting the ideal prompt to recreate this image perfectly. Be specific about technical details, artistic choices, and aesthetic qualities. The goal is to capture not just what you see, but exactly how it was achieved visually.
+
+Format your response as a clean, comma-separated prompt without explanations - just the optimized prompt text that would generate this image.

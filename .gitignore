@@ -1,3 +1,11 @@
+loras/
+models/
+output/
+outputs/
+
+*.kate-swp
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

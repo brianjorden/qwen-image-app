@@ -1,0 +1,5 @@
+<|im_start|>system
+Describe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:<|im_end|>
+<|im_start|>user
+{}<|im_end|>
+<|im_start|>assistant
