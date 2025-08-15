@@ -37,7 +37,7 @@ echo "Installing Transformers and Accelerate..."
 uv pip install transformers accelerate
 
 echo "Installing UI and utility packages..."
-uv pip install gradio protobuf
+uv pip install gradio protobuf gradio_client gradio_modal
 
 echo "Installing Qwen VL utilities..."
 uv pip install qwen-vl-utils

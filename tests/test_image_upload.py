@@ -26,14 +26,23 @@ class TestImageValidation(unittest.TestCase):
         """Set up test fixtures."""
         self.test_temp_dir = tempfile.mkdtemp()
         
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.mock_config = self.config_patcher.start()
+        self.mock_config.return_value.resolution_multiple = 16
+        
         # Create test images
         self.test_image_rgb = Image.new('RGB', (512, 512), 'red')
         self.test_image_rgba = Image.new('RGBA', (512, 512), 'blue')
+        
+        # Save test image for path testing
         self.test_image_path = Path(self.test_temp_dir) / "test_image.png"
         self.test_image_rgb.save(self.test_image_path)
-        
+    
     def tearDown(self):
         """Clean up test fixtures."""
+        self.config_patcher.stop()
+        # Clean up temp directory
         import shutil
         shutil.rmtree(self.test_temp_dir, ignore_errors=True)
     
@@ -83,6 +92,28 @@ class TestImageValidation(unittest.TestCase):
 class TestImageResizing(unittest.TestCase):
     """Test image resizing functionality."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Mock config to avoid initialization issues - need to mock in multiple modules
+        self.config_patcher = patch('src.config.get_config')
+        self.process_config_patcher = patch('src.process.get_config')
+        self.edit_config_patcher = patch('src.edit.get_config')
+        
+        self.mock_config = self.config_patcher.start()
+        self.mock_process_config = self.process_config_patcher.start()
+        self.mock_edit_config = self.edit_config_patcher.start()
+        
+        # Set up config attributes
+        self.mock_config.return_value.resolution_multiple = 16
+        self.mock_process_config.return_value.resolution_multiple = 16
+        self.mock_edit_config.return_value.resolution_multiple = 16
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.config_patcher.stop()
+        self.process_config_patcher.stop()
+        self.edit_config_patcher.stop()
+    
     def test_resize_image_same_size(self):
         """Test resizing when image is already the correct size."""
         from src.edit import resize_image_for_generation
@@ -117,51 +148,62 @@ class TestImageResizing(unittest.TestCase):
 class TestParameterValidation(unittest.TestCase):
     """Test parameter validation for noise interpolation generation."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.mock_config = self.config_patcher.start()
+        self.mock_config.return_value.resolution_multiple = 16
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.config_patcher.stop()
+    
     def test_valid_parameters(self):
         """Test validation with valid parameters."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         
         test_image = Image.new('RGB', (512, 512), 'red')
-        is_valid, error = validate_noise interpolation_parameters(test_image, 0.5, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, 0.5, 512, 512)
         
         self.assertTrue(is_valid)
         self.assertEqual(error, "")
     
     def test_invalid_strength_too_low(self):
         """Test validation with strength below 0.0."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         
         test_image = Image.new('RGB', (512, 512), 'red')
-        is_valid, error = validate_noise interpolation_parameters(test_image, -0.1, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, -0.1, 512, 512)
         
         self.assertFalse(is_valid)
         self.assertIn("Strength must be between 0.0 and 1.0", error)
     
     def test_invalid_strength_too_high(self):
         """Test validation with strength above 1.0."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         
         test_image = Image.new('RGB', (512, 512), 'red')
-        is_valid, error = validate_noise interpolation_parameters(test_image, 1.5, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, 1.5, 512, 512)
         
         self.assertFalse(is_valid)
         self.assertIn("Strength must be between 0.0 and 1.0", error)
     
     def test_invalid_dimensions(self):
         """Test validation with invalid dimensions."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         
         test_image = Image.new('RGB', (512, 512), 'red')
-        is_valid, error = validate_noise interpolation_parameters(test_image, 0.5, 0, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, 0.5, 0, 512)
         
         self.assertFalse(is_valid)
         self.assertIn("Invalid dimensions", error)
     
     def test_no_image(self):
         """Test validation with no input image."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         
-        is_valid, error = validate_noise interpolation_parameters(None, 0.5, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(None, 0.5, 512, 512)
         
         self.assertFalse(is_valid)
         self.assertIn("No input image provided", error)
@@ -170,9 +212,20 @@ class TestParameterValidation(unittest.TestCase):
 class TestStrengthPresets(unittest.TestCase):
     """Test noise interpolation strength presets."""
     
+    def setUp(self):
+        """Set up test fixtures."""
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.mock_config = self.config_patcher.start()
+        self.mock_config.return_value.resolution_multiple = 16
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.config_patcher.stop()
+    
     def test_strength_presets(self):
         """Test that strength presets return expected values."""
-        from src.edit import get_optimal_noise interpolation_strength
+        from src.edit import get_optimal_noise_interpolation_strength
         
         test_cases = [
             ("minimal", 0.1),
@@ -183,15 +236,15 @@ class TestStrengthPresets(unittest.TestCase):
         ]
         
         for similarity, expected_strength in test_cases:
-            actual_strength = get_optimal_noise interpolation_strength(similarity)
+            actual_strength = get_optimal_noise_interpolation_strength(similarity)
             self.assertEqual(actual_strength, expected_strength)
     
     def test_strength_preset_default(self):
         """Test default strength preset for unknown values."""
-        from src.edit import get_optimal_noise interpolation_strength
+        from src.edit import get_optimal_noise_interpolation_strength
         
         # Unknown preset should return medium (0.5)
-        strength = get_optimal_noise interpolation_strength("unknown")
+        strength = get_optimal_noise_interpolation_strength("unknown")
         self.assertEqual(strength, 0.5)
 
 
@@ -201,41 +254,58 @@ class TestImagePreprocessing(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.test_temp_dir = tempfile.mkdtemp()
+        
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.process_config_patcher = patch('src.process.get_config')
+        self.edit_config_patcher = patch('src.edit.get_config')
+        
+        self.mock_config = self.config_patcher.start()
+        self.mock_process_config = self.process_config_patcher.start()
+        self.mock_edit_config = self.edit_config_patcher.start()
+        
+        # Set up config attributes
+        self.mock_config.return_value.resolution_multiple = 16
+        self.mock_process_config.return_value.resolution_multiple = 16
+        self.mock_edit_config.return_value.resolution_multiple = 16
         self.test_image = Image.new('RGB', (512, 512), 'red')
         self.test_image_path = Path(self.test_temp_dir) / "test.png"
         self.test_image.save(self.test_image_path)
         
     def tearDown(self):
         """Clean up test fixtures."""
+        self.config_patcher.stop()
+        self.process_config_patcher.stop()
+        self.edit_config_patcher.stop()
         import shutil
         shutil.rmtree(self.test_temp_dir, ignore_errors=True)
     
     def test_preprocess_from_path(self):
         """Test preprocessing from image path."""
-        from src.edit import preprocess_for_noise interpolation
+        from src.edit import preprocess_for_noise_interpolation
         
-        processed, status = preprocess_for_noise interpolation(self.test_image_path, 512, 512, 0.5)
+        processed, status = preprocess_for_noise_interpolation(self.test_image_path, 512, 512, 0.5)
         
         self.assertIsInstance(processed, Image.Image)
         self.assertEqual(processed.size, (512, 512))
-        self.assertIn("ready for noise interpolation", status)
+        self.assertIn("ready for noise_interpolation", status)
     
     def test_preprocess_from_pil(self):
         """Test preprocessing from PIL Image."""
-        from src.edit import preprocess_for_noise interpolation
+        from src.edit import preprocess_for_noise_interpolation
         
-        processed, status = preprocess_for_noise interpolation(self.test_image, 512, 512, 0.5)
+        processed, status = preprocess_for_noise_interpolation(self.test_image, 512, 512, 0.5)
         
         self.assertIsInstance(processed, Image.Image)
         self.assertEqual(processed.size, (512, 512))
-        self.assertIn("ready for noise interpolation", status)
+        self.assertIn("ready for noise_interpolation", status)
     
     def test_preprocess_with_resize(self):
         """Test preprocessing when resizing is needed."""
-        from src.edit import preprocess_for_noise interpolation
+        from src.edit import preprocess_for_noise_interpolation
         
         small_image = Image.new('RGB', (256, 256), 'blue')
-        processed, status = preprocess_for_noise interpolation(small_image, 512, 512, 0.5)
+        processed, status = preprocess_for_noise_interpolation(small_image, 512, 512, 0.5)
         
         self.assertIsInstance(processed, Image.Image)
         self.assertEqual(processed.size, (512, 512))
@@ -243,16 +313,27 @@ class TestImagePreprocessing(unittest.TestCase):
     
     def test_preprocess_invalid_strength(self):
         """Test preprocessing with invalid strength parameter."""
-        from src.edit import preprocess_for_noise interpolation
+        from src.edit import preprocess_for_noise_interpolation
         
         with self.assertRaises(ValueError) as context:
-            preprocess_for_noise interpolation(self.test_image, 512, 512, 2.0)
+            preprocess_for_noise_interpolation(self.test_image, 512, 512, 2.0)
         
         self.assertIn("Strength must be between", str(context.exception))
 
 
 class TestUIIntegration(unittest.TestCase):
     """Test UI integration for image upload functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.mock_config = self.config_patcher.start()
+        self.mock_config.return_value.resolution_multiple = 16
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.config_patcher.stop()
     
     def test_ui_image_upload_handlers(self):
         """Test that UI image upload handlers are defined."""
@@ -274,19 +355,41 @@ class TestUIIntegration(unittest.TestCase):
             'session', 'prompt', 'negative_prompt', 'name',
             'width', 'height', 'steps', 'cfg_scale',
             'seed', 'randomize', 'apply_template', 'add_magic', 'save_steps',
-            'second_stage_steps', 'two_stage_mode', 'input_image', 'noise interpolation_strength'
+            'second_stage_steps', 'two_stage_mode', 'input_image', 'noise_interpolation_strength'
         ]
         
         # This would be the expected parameter count for the generate_image call
         self.assertEqual(len(expected_params), 17)
         
-        # Check that input_image and noise interpolation_strength are included
+        # Check that input_image and noise_interpolation_strength are included
         self.assertIn('input_image', expected_params)
-        self.assertIn('noise interpolation_strength', expected_params)
+        self.assertIn('noise_interpolation_strength', expected_params)
 
 
 class TestMockImageEncoding(unittest.TestCase):
     """Test image encoding with mocked dependencies."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Mock config to avoid initialization issues
+        self.config_patcher = patch('src.config.get_config')
+        self.process_config_patcher = patch('src.process.get_config')
+        self.edit_config_patcher = patch('src.edit.get_config')
+        
+        self.mock_config = self.config_patcher.start()
+        self.mock_process_config = self.process_config_patcher.start()
+        self.mock_edit_config = self.edit_config_patcher.start()
+        
+        # Set up config attributes
+        self.mock_config.return_value.resolution_multiple = 16
+        self.mock_process_config.return_value.resolution_multiple = 16
+        self.mock_edit_config.return_value.resolution_multiple = 16
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.config_patcher.stop()
+        self.process_config_patcher.stop()
+        self.edit_config_patcher.stop()
     
     @patch('src.edit.get_model_manager')
     @patch('src.edit.get_pipe')

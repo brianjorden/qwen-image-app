@@ -1,8 +1,15 @@
 # CLAUDE.md
 
+**Last Updated: 2025-08-14** *(Please update this date when editing this file)*
+
 **⚠️ EXPERIMENTAL CODEBASE ⚠️**
 
 This file provides guidance to Claude Code when working with this qwen-image-app repository. This is a hacky experimental platform - lots of stuff is broken, everything will change, don't get attached to any APIs or patterns!
+
+## Important Notes for Editors
+- **Always update the "Last Updated" date above when making changes to this file**
+- Use current version numbers (not years) when referencing packages (e.g., Gradio 5.42.0, not "Gradio 2024")
+- Check actual installed package versions instead of assuming based on dates
 
 ## Development Setup
 

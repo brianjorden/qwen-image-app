@@ -65,9 +65,12 @@ class TestTwoStageGeneration(unittest.TestCase):
             default_negative=" ",
             prompt_magic_en="high quality",
             prompt_magic_zh="超清",
-            enable_metadata_embed=True,
+            enable_metadata_embed=False,  # Disable to avoid Mock serialization issues
             output_format="png",
-            resolution_multiple=16  # Add missing config value
+            resolution_multiple=16,  # Add missing config value
+            # Add template paths to avoid Mock template loading errors
+            template_magic="./templates/magic.txt",
+            template_image="./templates/image.txt"
         )
         mock_config.return_value = config_mock
         mock_prompt_config.return_value = config_mock  # Same config for prompt module
@@ -87,9 +90,12 @@ class TestTwoStageGeneration(unittest.TestCase):
         test_image = Image.new('RGB', (512, 512), 'red')
         mock_result = Mock()
         mock_result.images = [test_image]
+        
         mock_pipeline = Mock()
-        mock_pipeline.__call__ = Mock(return_value=mock_result)
+        mock_pipeline.return_value = mock_result  # When called as a function, return mock_result
         mock_pipeline.device = torch.device('cpu')  # Real torch device
+        # Configure __call__ as a proper Mock for assertion tracking
+        mock_pipeline.__call__ = Mock(return_value=mock_result)
         mock_pipe.return_value = mock_pipeline
         
         # Test single-stage generation (second_stage_steps=0)
@@ -106,7 +112,9 @@ class TestTwoStageGeneration(unittest.TestCase):
         self.assertIsNotNone(path)
         
         # Verify pipeline was called only once (single stage)
-        mock_pipeline.__call__.assert_called_once()
+        # Note: pipeline() calls use return_value, not __call__ method
+        self.assertTrue(mock_pipeline.called, "Pipeline should have been called")
+        self.assertEqual(mock_pipeline.call_count, 1, "Pipeline should be called exactly once for single-stage")
     
     @patch('src.prompt.get_config')  # Mock config in prompt module too
     @patch('src.process.get_config')
@@ -125,7 +133,7 @@ class TestTwoStageGeneration(unittest.TestCase):
             default_negative=" ",
             prompt_magic_en="high quality",
             prompt_magic_zh="超清",
-            enable_metadata_embed=True,
+            enable_metadata_embed=False,  # Disable to avoid Mock serialization issues
             output_format="png",
             resolution_multiple=16  # Add missing config value
         )
@@ -165,11 +173,14 @@ class TestTwoStageGeneration(unittest.TestCase):
         call_count = [0]  # Use list to make it mutable
         def mock_pipeline_call(*args, **kwargs):
             call_count[0] += 1
+            result = Mock()
             if call_count[0] == 1:
-                return Mock(images=[stage1_image])
+                result.images = [stage1_image]
             else:
-                return Mock(images=[stage2_image])
+                result.images = [stage2_image]
+            return result
         
+        mock_pipeline.side_effect = mock_pipeline_call  # Use side_effect for callable
         mock_pipeline.__call__ = Mock(side_effect=mock_pipeline_call)
         mock_pipe.return_value = mock_pipeline
         
@@ -294,14 +305,14 @@ class TestNoiseInterpolation(unittest.TestCase):
             'prompt': 'test prompt',
             'is_two_stage': True,
             'two_stage_mode': 'Img2Img Mode',
-            'noise interpolation_strength': 0.3,
+            'noise_interpolation_strength': 0.3,
             'first_stage_steps': 20,
             'second_stage_steps': 10,
         }
         
         result = format_metadata_display(test_metadata)
         
-        # Check that noise interpolation info is displayed
+        # Check that noise_interpolation info is displayed
         self.assertIn('Mode: Img2Img Mode', result)
         self.assertIn('Img2Img Strength: 0.3', result)
         self.assertIn('Stage 1: 20 steps', result)
@@ -316,34 +327,34 @@ class TestImageUploadFunctionality(unittest.TestCase):
         try:
             from src.edit import (
                 validate_input_image, resize_image_for_generation,
-                encode_image_to_latents, create_noise interpolation_latents,
-                preprocess_for_noise interpolation
+                encode_image_to_latents, create_noise_interpolation_latents,
+                preprocess_for_noise_interpolation
             )
             # If import works, the module is syntactically correct
             self.assertTrue(True)
         except ImportError as e:
             self.fail(f"Edit module failed to import: {e}")
     
-    def test_noise interpolation_parameter_validation(self):
+    def test_noise_interpolation_parameter_validation(self):
         """Test that noise interpolation parameters are validated correctly."""
-        from src.edit import validate_noise interpolation_parameters
+        from src.edit import validate_noise_interpolation_parameters
         from PIL import Image
         
         # Create a test image
         test_image = Image.new('RGB', (512, 512), 'red')
         
         # Test valid parameters
-        is_valid, error = validate_noise interpolation_parameters(test_image, 0.5, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, 0.5, 512, 512)
         self.assertTrue(is_valid)
         self.assertEqual(error, "")
         
         # Test invalid strength
-        is_valid, error = validate_noise interpolation_parameters(test_image, 2.0, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(test_image, 2.0, 512, 512)
         self.assertFalse(is_valid)
         self.assertIn("Strength must be between", error)
         
         # Test no image
-        is_valid, error = validate_noise interpolation_parameters(None, 0.5, 512, 512)
+        is_valid, error = validate_noise_interpolation_parameters(None, 0.5, 512, 512)
         self.assertFalse(is_valid)
         self.assertIn("No input image", error)
 
@@ -380,11 +391,11 @@ class TestDualModeSystem(unittest.TestCase):
         # Check for new parameters
         self.assertIn('second_stage_steps', params)
         self.assertIn('two_stage_mode', params)
-        self.assertIn('noise interpolation_strength', params)
+        self.assertIn('noise_interpolation_strength', params)
         
         # Check default values
         self.assertEqual(sig.parameters['two_stage_mode'].default, "Img2Img Mode")
-        self.assertEqual(sig.parameters['noise interpolation_strength'].default, 0.5)
+        self.assertEqual(sig.parameters['noise_interpolation_strength'].default, 0.5)
         self.assertIsNone(sig.parameters['input_image'].default)
     
     def test_metadata_completeness(self):
@@ -402,10 +413,10 @@ class TestDualModeSystem(unittest.TestCase):
             'applied_magic_text': 'high quality'
         }
         
-        noise interpolation_metadata = {
+        noise_interpolation_metadata = {
             'prompt': 'test',
-            'is_noise interpolation': True,
-            'noise interpolation_strength': 0.7,
+            'is_img2img': True,
+            'noise_interpolation_strength': 0.7,
             'steps': 25,
             'applied_template_text': 'Template: {prompt}',
             'applied_magic_text': 'high quality'
@@ -413,12 +424,12 @@ class TestDualModeSystem(unittest.TestCase):
         
         # Both should format without errors
         two_stage_result = format_metadata_display(two_stage_metadata)
-        noise interpolation_result = format_metadata_display(noise interpolation_metadata)
+        noise_interpolation_result = format_metadata_display(noise_interpolation_metadata)
         
         # Basic checks
         self.assertIn('Two-Stage Generation: Yes', two_stage_result)
-        self.assertIn('Img2Img Generation: Yes', noise interpolation_result)
-        self.assertIn('Img2Img Strength: 0.7', noise interpolation_result)
+        self.assertIn('Img2Img Generation: Yes', noise_interpolation_result)
+        self.assertIn('Img2Img Strength: 0.7', noise_interpolation_result)
 
 
 class TestUIIntegration(unittest.TestCase):
@@ -444,7 +455,7 @@ class TestUIIntegration(unittest.TestCase):
             "session", "prompt", "neg_prompt", "name",
             512, 512, 20, 2.0,  # width, height, steps, cfg
             42, False, True, True, False, 10,  # seed, randomize, template, magic, save_steps, second_stage_steps
-            "Img2Img Mode", 0.6  # two_stage_mode, noise interpolation_strength
+            "Img2Img Mode", 0.6  # two_stage_mode, noise_interpolation_strength
         ]
         
         # Test that we have the right number of parameters for the new signature
@@ -453,7 +464,7 @@ class TestUIIntegration(unittest.TestCase):
         
         # Test parameter types
         self.assertIsInstance(mock_args[14], str)    # two_stage_mode
-        self.assertIsInstance(mock_args[15], float)  # noise interpolation_strength
+        self.assertIsInstance(mock_args[15], float)  # noise_interpolation_strength
 
 
 def run_tests():

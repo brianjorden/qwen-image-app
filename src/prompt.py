@@ -166,7 +166,7 @@ def add_magic_prompt(prompt: str, language: Optional[str] = None) -> str:
     
     # Don't add if already present
     if magic not in prompt:
-        return f"{prompt}, {magic}"
+        return f"{prompt}{magic}"
     return prompt
 
 

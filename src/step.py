@@ -6,6 +6,31 @@ This is a placeholder that can be expanded with actual functionality.
 from typing import Dict, Any, Optional
 import torch
 
+# Global cancellation flag accessible from UI
+_should_cancel_generation = False
+
+
+def request_cancellation():
+    """Request cancellation of current generation."""
+    global _should_cancel_generation
+    _should_cancel_generation = True
+
+
+def clear_cancellation():
+    """Clear cancellation flag."""
+    global _should_cancel_generation
+    _should_cancel_generation = False
+
+
+def should_cancel():
+    """Check if generation should be cancelled."""
+    return _should_cancel_generation
+
+
+class GenerationCancelledException(Exception):
+    """Exception raised when generation is cancelled."""
+    pass
+
 
 def step_callback(
     pipe,
@@ -29,16 +54,17 @@ def step_callback(
             
     Returns:
         Modified callback_kwargs (can alter latents, etc.)
+        
+    Raises:
+        GenerationCancelledException: If generation should be cancelled
     """
-    # Placeholder - does nothing but return unchanged kwargs
-    # Can add functionality here without modifying the pipeline
+    # Check for cancellation request at each step
+    if should_cancel():
+        print(f"Generation cancelled at step {step}")
+        raise GenerationCancelledException(f"Generation cancelled at step {step}")
     
-    # Example of what could be done:
-    # - Log step progress
-    # - Save intermediate latents
-    # - Apply dynamic guidance adjustments
-    # - Visualize denoising process
-    # - Early stopping based on convergence
+    # Optional: Log progress for debugging
+    # print(f"Step {step}/{timestep}")
     
     return callback_kwargs
 
@@ -57,12 +83,11 @@ def setup_step_callback(enabled: bool = False, save_steps: bool = False,
     Returns:
         Callback function or None
     """
-    if enabled or save_steps:
-        if save_steps:
-            return create_step_saving_callback(session_path, name, vae)
-        else:
-            return step_callback
-    return None
+    # Always return a callback for cancellation checking, even if other features are disabled
+    if save_steps:
+        return create_step_saving_callback(session_path, name, vae)
+    else:
+        return step_callback  # Always return the basic callback for cancellation
 
 
 def create_step_saving_callback(session_path, name, vae):
@@ -78,10 +103,19 @@ def create_step_saving_callback(session_path, name, vae):
     """
     def step_saving_callback(*args, **kwargs):
         try:
-            # Basic callback debug info
+            # Extract step number first for cancellation check
             if len(args) >= 2:
                 step = args[1]
-                print(f"Step callback called for step {step}")
+            else:
+                step = kwargs.get('step', 0)
+                
+            # Check for cancellation request at each step
+            if should_cancel():
+                print(f"Generation cancelled at step {step}")
+                raise GenerationCancelledException(f"Generation cancelled at step {step}")
+            
+            # Basic callback debug info
+            print(f"Step callback called for step {step}")
             
             # Try to extract parameters based on common diffusers callback patterns
             if len(args) >= 4:

@@ -126,7 +126,7 @@ def encode_image_to_latents(image: Image.Image, target_width: int, target_height
         return packed_latents
 
 
-def create_noise interpolation_latents(
+def create_noise_interpolation_latents(
     input_image: Image.Image, 
     strength: float, 
     seed: int,
@@ -164,7 +164,7 @@ def create_noise interpolation_latents(
     return mixed_latents
 
 
-def get_optimal_noise interpolation_strength(image_similarity: str = "medium") -> float:
+def get_optimal_noise_interpolation_strength(image_similarity: str = "medium") -> float:
     """Get optimal noise interpolation strength based on desired transformation level.
     
     Args:
@@ -184,7 +184,7 @@ def get_optimal_noise interpolation_strength(image_similarity: str = "medium") -
     return strength_presets.get(image_similarity, 0.5)
 
 
-def validate_noise interpolation_parameters(
+def validate_noise_interpolation_parameters(
     image: Optional[Image.Image],
     strength: float,
     width: int,
@@ -224,7 +224,7 @@ def validate_noise interpolation_parameters(
     return True, ""
 
 
-def preprocess_for_noise interpolation(
+def preprocess_for_noise_interpolation(
     image: Union[str, Path, Image.Image],
     width: int,
     height: int,
@@ -249,7 +249,7 @@ def preprocess_for_noise interpolation(
     original_size = processed_image.size
     
     # Validate parameters
-    is_valid, error_msg = validate_noise interpolation_parameters(processed_image, strength, width, height)
+    is_valid, error_msg = validate_noise_interpolation_parameters(processed_image, strength, width, height)
     if not is_valid:
         raise ValueError(error_msg)
     

@@ -4,6 +4,7 @@ Enhanced image generation pipeline with metadata, queue, and template support.
 
 import torch
 import json
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
@@ -14,7 +15,11 @@ from .models import get_model_manager, get_pipe
 from .metadata import save_image_with_metadata
 from .gallery import get_session_manager
 from .prompt import prepare_prompts_for_pipeline, add_magic_prompt, detect_language
-from .step import setup_step_callback
+from .step import setup_step_callback, clear_cancellation, GenerationCancelledException
+
+# Global cancellation flag and lock
+_generation_cancelled = threading.Event()
+_generation_lock = threading.Lock()
 
 
 def validate_dimensions(width: int, height: int) -> Tuple[int, int]:
@@ -108,6 +113,9 @@ def generate_image(
     Returns:
         Tuple of (generated_image, save_path)
     """
+    # Clear any previous cancellation flag at the start
+    clear_cancellation()
+    
     config = get_config()
     manager = get_model_manager()
     
@@ -126,7 +134,7 @@ def generate_image(
     
     # Import edit functions for img2img
     if is_img2img:
-        from .edit import preprocess_for_img2img, create_img2img_latents
+        from .edit import preprocess_for_noise_interpolation, create_noise_interpolation_latents
     
     # Import metadata function (used in multiple places)
     from .metadata import save_image_with_metadata
@@ -197,21 +205,18 @@ def generate_image(
     # Get pipeline
     pipe = get_pipe()
     
-    # Setup step callback if enabled or step saving requested
+    # Setup step callback - always enabled for cancellation support
     save_steps = kwargs.get('save_steps', False)
     
-    if config.enable_step_callback or save_steps:
-        # Get VAE for step image saving
-        vae = manager.vae if save_steps else None
-        callback = setup_step_callback(
-            enabled=config.enable_step_callback,
-            save_steps=save_steps,
-            session_path=session_path,
-            name=name,
-            vae=vae
-        )
-    else:
-        callback = None
+    # Get VAE for step image saving
+    vae = manager.vae if save_steps else None
+    callback = setup_step_callback(
+        enabled=True,  # Always enable for cancellation
+        save_steps=save_steps,
+        session_path=session_path,
+        name=name,
+        vae=vae
+    )
     
     # Prepare generation arguments
     gen_args = {
@@ -237,7 +242,7 @@ def generate_image(
     processed_input_image = None
     if is_img2img:
         try:
-            processed_input_image, status = preprocess_for_img2img(input_image, width, height, noise_interpolation_strength)
+            processed_input_image, status = preprocess_for_noise_interpolation(input_image, width, height, noise_interpolation_strength)
             print(f"Img2img: {status}")
         except ValueError as e:
             print(f"Img2img preprocessing failed: {e}")
@@ -268,7 +273,7 @@ def generate_image(
         # Handle img2img input
         if is_img2img:
             # Create img2img latents using noise interpolation
-            img2img_latents = create_img2img_latents(
+            img2img_latents = create_noise_interpolation_latents(
                 processed_input_image, noise_interpolation_strength, seed, width, height
             )
             stage1_gen_args['latents'] = img2img_latents
@@ -278,8 +283,12 @@ def generate_image(
         stage1_steps = num_inference_steps
         print(f"Stage 1: Generating with {stage1_steps} steps...")
         
-        with torch.no_grad():
-            stage1_result = pipe(**stage1_gen_args)
+        try:
+            with torch.no_grad():
+                stage1_result = pipe(**stage1_gen_args)
+        except GenerationCancelledException as e:
+            print(f"Generation cancelled: {e}")
+            return None, None
         first_stage_image = stage1_result.images[0]
         
         # Handle two-stage generation
@@ -332,8 +341,12 @@ def generate_image(
             stage2_gen_args['latents'] = stage2_latents
             stage2_gen_args['num_inference_steps'] = second_stage_steps
             
-            with torch.no_grad():
-                stage2_result = pipe(**stage2_gen_args)
+            try:
+                with torch.no_grad():
+                    stage2_result = pipe(**stage2_gen_args)
+            except GenerationCancelledException as e:
+                print(f"Stage 2 generation cancelled: {e}")
+                return None, None
             
             final_image = stage2_result.images[0]
             print("Stage 2: Noise interpolation complete!")

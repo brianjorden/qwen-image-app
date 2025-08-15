@@ -36,6 +36,8 @@ class Config:
         'prompt_enhance_max_tokens', 'enable_per_step_saving',
         # Output
         'output_directory', 'output_format', 'output_quality',
+        # Temp file management
+        'temporary_directory', 'purge_temp_at_startup', 'purge_temp_at_shutdown',
         # LoRA
         'lora_directory', 'lora_max_count',
         # Advanced
@@ -88,7 +90,7 @@ class Config:
         path_fields = [
             'model_diffusion', 'model_text_encoder',
             'model_vae', 'model_tokenizer', 'model_scheduler',
-            'output_directory', 'lora_directory'
+            'output_directory', 'lora_directory', 'temporary_directory'
         ]
         
         for field in path_fields:
@@ -97,7 +99,7 @@ class Config:
                 self._config[field] = str(Path(value).expanduser().resolve())
         
         # Create directories if they don't exist
-        for dir_field in ['output_directory', 'lora_directory']:
+        for dir_field in ['output_directory', 'lora_directory', 'temporary_directory']:
             dir_path = self._config.get(dir_field)
             if dir_path:
                 Path(dir_path).mkdir(parents=True, exist_ok=True)
@@ -162,6 +164,115 @@ class Config:
     def get_resolution(self, aspect_ratio: str) -> Tuple[int, int]:
         """Get resolution tuple for aspect ratio."""
         return self.resolutions.get(aspect_ratio, (self.default_width, self.default_height))
+    
+    def get_temp_path(self, suffix: str = '') -> str:
+        """Get a temporary file path in the configured temp directory.
+        
+        Args:
+            suffix: File suffix (e.g., '.png', '.txt')
+            
+        Returns:
+            Full path to temporary file
+        """
+        import tempfile
+        import os
+        
+        # Use configured temp directory instead of system temp
+        temp_dir = self.temporary_directory
+        
+        # Generate a unique filename
+        fd, temp_path = tempfile.mkstemp(suffix=suffix, dir=temp_dir)
+        os.close(fd)  # Close the file descriptor, just return the path
+        
+        return temp_path
+    
+    def get_temp_path_with_name(self, base_name: str, suffix: str = '') -> str:
+        """Get a temporary file path with a meaningful name.
+        
+        Args:
+            base_name: Base name for the file (without extension)
+            suffix: File suffix (e.g., '.png', '.txt')
+            
+        Returns:
+            Full path to temporary file with meaningful name
+        """
+        import uuid
+        from pathlib import Path
+        
+        # Use configured temp directory
+        temp_dir = Path(self.temporary_directory)
+        
+        # Create a unique but meaningful filename
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"{base_name}_{unique_id}{suffix}"
+        
+        return str(temp_dir / filename)
+    
+    def save_temp_image_with_metadata(self, image, base_name: str = "image") -> str:
+        """Save an image to temp directory with metadata preservation.
+        
+        Args:
+            image: PIL Image object
+            base_name: Base name for the file
+            
+        Returns:
+            Path to saved temp image
+        """
+        from src.metadata import save_image_with_metadata, extract_metadata_from_pil_image
+        
+        # Generate temp path with meaningful name
+        temp_path = self.get_temp_path_with_name(base_name, '.png')
+        
+        # Extract existing metadata if any
+        try:
+            existing_metadata = extract_metadata_from_pil_image(image)
+        except:
+            existing_metadata = {}
+        
+        # Save with metadata preservation
+        try:
+            save_image_with_metadata(image, temp_path, existing_metadata, {})
+        except:
+            # Fallback to simple save if metadata saving fails
+            image.save(temp_path, 'PNG')
+        
+        return temp_path
+    
+    def cleanup_old_temp_files(self, max_age_hours: int = 24) -> int:
+        """Clean up old temporary files.
+        
+        Args:
+            max_age_hours: Remove files older than this many hours
+            
+        Returns:
+            Number of files cleaned up
+        """
+        import os
+        import time
+        from pathlib import Path
+        
+        temp_dir = Path(self.temporary_directory)
+        if not temp_dir.exists():
+            return 0
+        
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        cleaned_count = 0
+        
+        try:
+            for file_path in temp_dir.iterdir():
+                if file_path.is_file():
+                    file_age = current_time - file_path.stat().st_mtime
+                    if file_age > max_age_seconds:
+                        try:
+                            file_path.unlink()
+                            cleaned_count += 1
+                        except OSError:
+                            pass  # File might be in use or already deleted
+        except Exception as e:
+            print(f"Error during temp file cleanup: {e}")
+        
+        return cleaned_count
     
     def validate_models_exist(self):
         """Validate that model paths actually exist."""

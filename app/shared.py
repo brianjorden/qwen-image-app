@@ -14,6 +14,69 @@ CUSTOM_CSS = """
 .inactive-control { opacity: 0.5; }
 .token-counter { font-size: 0.9em; color: #666; }
 .metadata-display { font-family: monospace; font-size: 0.9em; }
+
+/* Button tooltips using aria-label */
+button[aria-label]:hover::after,
+.gr-button[aria-label]:hover::after {
+    content: attr(aria-label);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    margin-bottom: 5px;
+}
+
+button[aria-label]:hover::after,
+.gr-button[aria-label]:hover::after {
+    opacity: 1;
+}
+
+/* Tooltip arrow */
+button[aria-label]:hover::before,
+.gr-button[aria-label]:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: rgba(0, 0, 0, 0.9);
+    z-index: 1001;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    margin-bottom: 1px;
+}
+
+button[aria-label]:hover::before,
+.gr-button[aria-label]:hover::before {
+    opacity: 1;
+}
+
+/* Also support keyboard focus for accessibility */
+button[aria-label]:focus::after,
+.gr-button[aria-label]:focus::after,
+button[aria-label]:focus::before,
+.gr-button[aria-label]:focus::before {
+    opacity: 1;
+}
+
+/* Ensure tooltip container has relative positioning */
+button[aria-label],
+.gr-button[aria-label] {
+    position: relative;
+}
 """
 
 

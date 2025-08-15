@@ -33,6 +33,7 @@ def main():
         test_dir / "test_two_stage_generation.py",
         test_dir / "test_noise_interpolation.py",
         test_dir / "test_image_upload.py",
+        test_dir / "test_quick_client.py",
     ]
     
     print("🚀 STARTING QWEN-IMAGE APPLICATION TEST SUITE")

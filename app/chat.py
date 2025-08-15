@@ -3,13 +3,15 @@ Chat tab UI for the Qwen-Image application.
 """
 
 import gradio as gr
+import gradio_modal
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 
 from src.chat import get_chat_manager
+from src.metadata import extract_metadata_from_pil_image, format_metadata_display
 
 
-def create_chat_tab() -> None:
+def create_chat_tab(shared_image_state: gr.State = None, shared_prompt_state: gr.State = None, shared_metadata_state: gr.State = None, tab_communication_state: gr.State = None) -> None:
     """Create the VL model chat tab."""
     chat_manager = get_chat_manager()
     
@@ -30,17 +32,9 @@ def create_chat_tab() -> None:
                 label="Chat Thread",
                 choices=["Main Conversation"],
                 value="Main Conversation",
-                scale=3,
+                scale=4,
             )
             new_thread_btn = gr.Button("New Thread", scale=1)
-            thread_name_input = gr.Textbox(
-                label="Thread Name",
-                placeholder="Enter thread name...",
-                scale=2,
-                visible=False
-            )
-            create_thread_btn = gr.Button("Create", scale=1, visible=False)
-            cancel_thread_btn = gr.Button("Cancel", scale=1, visible=False)
         
         chatbot = gr.Chatbot(
             height=600, 
@@ -69,12 +63,38 @@ def create_chat_tab() -> None:
             describe_btn = gr.Button("Describe Image for Generation", scale=2)
         
         with gr.Row():
+            from src.config import get_config
+            config = get_config()
             max_new_tokens_input = gr.Slider(
                 label="Max New Tokens",
-                minimum=50,
-                maximum=4000,
-                value=512,
-                step=50
+                minimum=0,
+                maximum=4096,
+                value=getattr(config, 'default_max_new_tokens', 2048),
+                step=16
+            )
+    
+    # Chat image fullscreen modal
+    with gradio_modal.Modal(visible=False, allow_user_close=True) as chat_image_modal:
+        with gr.Column():
+            gr.Markdown("### Chat Image Viewer")
+            chat_modal_close_btn = gr.Button("✕ Close", scale=1)
+            
+            # Large image display for chat image
+            chat_modal_image = gr.Image(
+                label="",
+                show_label=False,
+                interactive=False,
+                height=600,
+                show_download_button=True,
+                show_share_button=False
+            )
+            
+            # Chat image metadata in modal
+            chat_modal_metadata = gr.Textbox(
+                label="Image Metadata",
+                lines=4,
+                interactive=False,
+                show_label=True
             )
     
     # State for managing multiple chat threads
@@ -85,8 +105,12 @@ def create_chat_tab() -> None:
     _setup_chat_handlers(
         chat_manager, chatbot, msg_input, image_input, 
         send_btn, clear_btn, describe_btn, max_new_tokens_input,
-        chat_threads, new_thread_btn, thread_name_input, create_thread_btn, cancel_thread_btn,
-        chat_threads_state, current_thread
+        chat_threads, new_thread_btn,
+        chat_threads_state, current_thread,
+        # Chat image modal components
+        chat_image_modal, chat_modal_image, chat_modal_metadata, chat_modal_close_btn,
+        # Cross-tab communication states
+        shared_image_state, shared_prompt_state, shared_metadata_state, tab_communication_state
     )
     
     # Add keyboard shortcuts
@@ -112,40 +136,74 @@ def create_chat_tab() -> None:
 def _setup_chat_handlers(
     chat_manager, chatbot, msg_input, image_input, 
     send_btn, clear_btn, describe_btn, max_new_tokens_input,
-    chat_threads, new_thread_btn, thread_name_input, create_thread_btn, cancel_thread_btn,
-    chat_threads_state, current_thread
+    chat_threads, new_thread_btn,
+    chat_threads_state, current_thread,
+    # Chat image modal components
+    chat_image_modal, chat_modal_image, chat_modal_metadata, chat_modal_close_btn,
+    # Cross-tab communication states
+    shared_image_state, shared_prompt_state, shared_metadata_state, tab_communication_state
 ):
     """Setup all chat event handlers."""
     
     def chat_and_clear(message: str, image: Optional[Image.Image], history: List[Dict], max_new_tokens: int) -> Tuple:
         """Handle chat response and clear inputs."""
-        import tempfile
-        
         # Get business logic response
         new_history = chat_manager.chat_response(message, image, history, max_new_tokens)
         
-        # Convert any image objects to Gradio-compatible format
+        # Convert PIL image objects to proper Gradio 5.42.0 format
+        from src.config import get_config
+        config = get_config()
+        
+        processed_history = []
         for msg in new_history:
             if "image" in msg and msg["image"] is not None:
-                # Convert PIL image to temporary file for Gradio display
-                temp_path = tempfile.mktemp(suffix='.png')
-                msg["image"].save(temp_path)
-                # Replace image object with Gradio-compatible format
-                msg["content"] = [
-                    {"type": "text", "text": msg["content"]},
-                    {"path": temp_path, "alt_text": "Uploaded image"}
-                ]
-                del msg["image"]  # Remove the PIL object
+                # Save PIL image to temp directory with metadata preservation
+                pil_image = msg["image"]
+                temp_path = config.save_temp_image_with_metadata(pil_image, "chat_image")
+                
+                text_content = msg.get("content", "")
+                role = msg.get("role", "user")
+                
+                # If there's text content, add it as a separate message first
+                if text_content:
+                    processed_history.append({"role": role, "content": text_content})
+                
+                # Add the image as a separate message
+                processed_history.append({"role": role, "content": {"path": temp_path}})
+            else:
+                # Regular text message, keep as-is
+                processed_history.append(msg)
         
-        return new_history, "", None  # Clear message and image inputs
+        return processed_history, "", None  # Clear message and image inputs
     
     def clear_chat() -> None:
         """Clear chat history."""
         return None
     
     def describe_image_handler(image: Optional[Image.Image]) -> str:
-        """Handle image description."""
-        return chat_manager.describe_image(image)
+        """Handle image description by placing description in message input."""
+        if image:
+            return chat_manager.describe_image(image)
+        return ""
+    
+    def describe_for_generation_handler(image: Optional[Image.Image], history: List[Dict], max_new_tokens: int) -> Tuple:
+        """Start a new conversation thread with describe template and image."""
+        if not image:
+            gr.Warning("Please upload an image first")
+            return history, "", None
+        
+        try:
+            # Get the describe template
+            describe_template = chat_manager.get_describe_template()
+            
+            # Create new conversation with image and describe template
+            new_history = chat_manager.chat_response(describe_template, image, [], max_new_tokens)
+            
+            gr.Info("Started new conversation with image description request")
+            return new_history, "", None  # Clear inputs
+        except Exception as e:
+            gr.Warning(f"Failed to start description conversation: {str(e)}")
+            return history, "", None
     
     def handle_retry_wrapper(history: List[Dict], retry_data: gr.RetryData) -> Tuple:
         """Handle message retry."""
@@ -194,37 +252,30 @@ def _setup_chat_handlers(
         
         return history
     
-    def show_thread_creation_ui():
-        """Show thread creation input fields."""
-        return (
-            gr.update(visible=True),  # thread_name_input
-            gr.update(visible=True),  # create_thread_btn
-            gr.update(visible=True)   # cancel_thread_btn
-        )
-    
-    def hide_thread_creation_ui():
-        """Hide thread creation input fields."""
-        return (
-            gr.update(visible=False, value=""),  # thread_name_input
-            gr.update(visible=False),           # create_thread_btn
-            gr.update(visible=False)            # cancel_thread_btn
-        )
-    
-    def create_new_thread(thread_name: str, threads_state: Dict, current_thread_name: str):
-        """Create a new chat thread."""
-        if not thread_name.strip():
-            gr.Warning("Please enter a thread name")
-            return threads_state, current_thread_name, gr.update(), *hide_thread_creation_ui(), gr.update()
+    def create_new_thread_auto(threads_state: Dict, current_thread_name: str):
+        """Create a new chat thread with auto-generated name."""
+        import datetime
+        
+        # Generate thread name with timestamp
+        timestamp = datetime.datetime.now().strftime("%H:%M")
+        thread_count = len(threads_state) + 1
+        thread_name = f"Chat {thread_count} ({timestamp})"
+        
+        # Ensure unique name
+        while thread_name in threads_state:
+            thread_count += 1
+            thread_name = f"Chat {thread_count} ({timestamp})"
         
         # Add new thread
         threads_state[thread_name] = []
         thread_choices = list(threads_state.keys())
         
+        gr.Info(f"Started new thread: {thread_name}")
+        
         return (
             threads_state,
             thread_name,  # Switch to new thread
             gr.update(choices=thread_choices, value=thread_name),  # Update dropdown
-            *hide_thread_creation_ui(),  # Hide creation UI
             []  # Clear chatbot for new thread
         )
     
@@ -233,6 +284,56 @@ def _setup_chat_handlers(
         if thread_name in threads_state:
             return threads_state[thread_name], thread_name
         return [], thread_name
+    
+    def handle_cross_tab_communication(comm_data, threads_state: Dict, current_thread_name: str):
+        """Handle messages from other tabs (enhance, send to chat, etc.)."""
+        if not comm_data:
+            return threads_state, current_thread_name, gr.update(), gr.update()
+        
+        try:
+            action = comm_data.get("action")
+            source = comm_data.get("source")
+            
+            if action == "start_new_chat":
+                chat_history = comm_data.get("chat_history", [])
+                
+                # Create a new thread for this conversation
+                import datetime
+                timestamp = datetime.datetime.now().strftime("%H:%M")
+                
+                if source == "enhance":
+                    enhancement_type = comm_data.get("enhancement_type", "")
+                    thread_name = f"Enhanced {enhancement_type} prompt ({timestamp})"
+                elif source == "generate":
+                    thread_name = f"Image chat ({timestamp})"
+                else:
+                    thread_name = f"New chat from {source} ({timestamp})"
+                
+                # Ensure unique name
+                counter = 1
+                original_name = thread_name
+                while thread_name in threads_state:
+                    thread_name = f"{original_name} #{counter}"
+                    counter += 1
+                
+                # Add new thread with the chat history
+                threads_state[thread_name] = chat_history
+                thread_choices = list(threads_state.keys())
+                
+                gr.Info(f"Started new conversation: {thread_name}")
+                
+                return (
+                    threads_state,
+                    thread_name,  # Switch to new thread
+                    gr.update(choices=thread_choices, value=thread_name),  # Update dropdown
+                    chat_history  # Update chatbot with new conversation
+                )
+            
+        except Exception as e:
+            gr.Warning(f"Failed to handle cross-tab communication: {e}")
+        
+        # Return unchanged state if nothing to do
+        return threads_state, current_thread_name, gr.update(), gr.update()
     
     # Main chat handlers
     send_btn.click(
@@ -253,26 +354,16 @@ def _setup_chat_handlers(
     )
     
     describe_btn.click(
-        fn=describe_image_handler,
-        inputs=[image_input],
-        outputs=[msg_input]
+        fn=describe_for_generation_handler,
+        inputs=[image_input, chatbot, max_new_tokens_input],
+        outputs=[chatbot, msg_input, image_input]
     )
     
     # Thread management handlers
     new_thread_btn.click(
-        fn=show_thread_creation_ui,
-        outputs=[thread_name_input, create_thread_btn, cancel_thread_btn]
-    )
-    
-    cancel_thread_btn.click(
-        fn=hide_thread_creation_ui,
-        outputs=[thread_name_input, create_thread_btn, cancel_thread_btn]
-    )
-    
-    create_thread_btn.click(
-        fn=create_new_thread,
-        inputs=[thread_name_input, chat_threads_state, current_thread],
-        outputs=[chat_threads_state, current_thread, chat_threads, thread_name_input, create_thread_btn, cancel_thread_btn, chatbot]
+        fn=create_new_thread_auto,
+        inputs=[chat_threads_state, current_thread],
+        outputs=[chat_threads_state, current_thread, chat_threads, chatbot]
     )
     
     chat_threads.change(
@@ -281,8 +372,66 @@ def _setup_chat_handlers(
         outputs=[chatbot, current_thread]
     )
     
+    # Monitor for cross-tab communication
+    if tab_communication_state:
+        tab_communication_state.change(
+            fn=handle_cross_tab_communication,
+            inputs=[tab_communication_state, chat_threads_state, current_thread],
+            outputs=[chat_threads_state, current_thread, chat_threads, chatbot]
+        )
+    
     # Chat interaction event handlers
     chatbot.retry(handle_retry_wrapper, [chatbot], [chatbot, msg_input, image_input])
     chatbot.undo(handle_undo_wrapper, [chatbot], [chatbot, msg_input])
     chatbot.edit(handle_edit_wrapper, [chatbot], [chatbot])
+    
+    # Chat image modal handlers
+    def open_chat_image_modal(evt: gr.SelectData, history: List[Dict]):
+        """Open modal with selected chat image in fullscreen."""
+        try:
+            if evt.index >= len(history):
+                return gr.update(visible=False), None, "No image found"
+            
+            message = history[evt.index]
+            image_content = message.get("content")
+            
+            # Check if the clicked content is an image (path format)
+            if isinstance(image_content, dict) and "path" in image_content:
+                image_path = image_content["path"]
+                try:
+                    from PIL import Image
+                    pil_image = Image.open(image_path)
+                    
+                    # Try to extract metadata
+                    metadata = extract_metadata_from_pil_image(pil_image)
+                    metadata_text = format_metadata_display(metadata) if metadata else "No metadata found"
+                    
+                    return (
+                        gr.update(visible=True),  # Show modal
+                        pil_image,                # Set modal image
+                        metadata_text            # Set modal metadata
+                    )
+                except Exception as e:
+                    return gr.update(visible=False), None, f"Error loading image: {e}"
+            
+            return gr.update(visible=False), None, "Selected item is not an image"
+            
+        except Exception as e:
+            return gr.update(visible=False), None, f"Error: {e}"
+    
+    def close_chat_image_modal():
+        """Close the chat image modal."""
+        return gr.update(visible=False)
+    
+    # Set up chat image modal events
+    chatbot.select(
+        fn=open_chat_image_modal,
+        inputs=[chatbot],
+        outputs=[chat_image_modal, chat_modal_image, chat_modal_metadata]
+    )
+    
+    chat_modal_close_btn.click(
+        fn=close_chat_image_modal,
+        outputs=[chat_image_modal]
+    )
     

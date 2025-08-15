@@ -27,6 +27,15 @@ class QwenImageApp:
         self.model_manager = get_model_manager()
         self.session_manager = get_session_manager()
         
+        # Clean up old temp files on startup if configured
+        if self.config.purge_temp_at_startup:
+            try:
+                cleaned_count = self.config.cleanup_old_temp_files(max_age_hours=24)
+                if cleaned_count > 0:
+                    print(f"Cleaned up {cleaned_count} old temp files")
+            except Exception as e:
+                print(f"Temp file cleanup failed: {e}")
+        
         # Auto-load pipeline if configured
         if self.config.auto_load_pipeline:
             try:
@@ -36,6 +45,16 @@ class QwenImageApp:
                 print("Auto-loading completed")
             except Exception as e:
                 print(f"Auto-loading failed: {e}")
+    
+    def shutdown(self):
+        """Clean up resources on shutdown."""
+        if self.config.purge_temp_at_shutdown:
+            try:
+                cleaned_count = self.config.cleanup_old_temp_files(max_age_hours=0)  # Remove all temp files
+                if cleaned_count > 0:
+                    print(f"Shutdown cleanup: removed {cleaned_count} temp files")
+            except Exception as e:
+                print(f"Shutdown temp file cleanup failed: {e}")
     
     def create_interface(self) -> gr.Blocks:
         """Create the complete Gradio interface."""
@@ -53,15 +72,21 @@ class QwenImageApp:
             # URL parameter handling for session
             session_state = gr.State(value=self.session_manager.get_default_session())
             
+            # Cross-tab communication states
+            shared_image_state = gr.State(None)        # For passing images between tabs
+            shared_prompt_state = gr.State("")         # For passing prompts between tabs
+            shared_metadata_state = gr.State({})       # For passing metadata between tabs
+            tab_communication_state = gr.State({})     # For tab-to-tab communication commands
+            
             with gr.Tabs():
                 with gr.Tab("Generate"):
-                    create_generation_tab(session_state)
+                    create_generation_tab(session_state, shared_image_state, shared_prompt_state, shared_metadata_state, tab_communication_state)
                 
                 with gr.Tab("Gallery"):
-                    create_gallery_tab(session_state)
+                    create_gallery_tab(session_state, shared_image_state, shared_prompt_state, shared_metadata_state, tab_communication_state)
                 
                 with gr.Tab("Chat"):
-                    create_chat_tab()
+                    create_chat_tab(shared_image_state, shared_prompt_state, shared_metadata_state, tab_communication_state)
                 
                 with gr.Tab("Analysis"):
                     create_analysis_tab()
@@ -96,6 +121,8 @@ def create_app():
 def main():
     """Launch the application."""
     import argparse
+    import atexit
+    import signal
     
     parser = argparse.ArgumentParser(description="Qwen-Image Generation App")
     parser.add_argument("--config", default="config.yaml", help="Config file path")
@@ -108,8 +135,22 @@ def main():
     # Initialize config
     init_config(args.config)
     
-    # Create and launch app
-    demo = create_app()
+    # Create app instance for shutdown handling
+    app_instance = QwenImageApp()
+    
+    # Register shutdown handlers
+    atexit.register(app_instance.shutdown)
+    
+    def signal_handler(sig, frame):
+        app_instance.shutdown()
+        import sys
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Create and launch demo
+    demo = app_instance.create_interface()
     demo.launch(
         server_name=args.host,
         server_port=args.port,

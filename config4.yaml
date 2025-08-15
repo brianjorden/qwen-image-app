@@ -13,11 +13,11 @@ enable_lora: true
 enable_metadata_embed: true
 enable_per_step_saving: false
 enable_prompt_enhancement: true
-enable_step_callback: true
+enable_step_callback: false
 enable_vae_tiling: true
-gpu_text_encoder: 3:8GiB,4:16GiB
-gpu_transformer: 0:13GiB,1:13GiB,2:15.5GiB
-gpu_vae: cuda:3
+gpu_text_encoder: 2:1.5GiB,3:16GiB
+gpu_transformer: 0:13.5GiB,1:13.5GiB,2:16GiB
+gpu_vae: cuda:2
 local_files_only: true
 lora_directory: ./loras
 lora_max_count: 4
@@ -32,9 +32,6 @@ num_workers: 1
 output_directory: ./output
 output_format: png
 output_quality: 95
-temporary_directory: ./temp
-purge_temp_at_startup: true
-purge_temp_at_shutdown: true
 prompt_enhance_max_tokens: 1024
 template_magic: ./templates/magic.txt
 prompt_max_tokens: 1024

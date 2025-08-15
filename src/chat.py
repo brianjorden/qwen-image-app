@@ -72,9 +72,8 @@ class ChatManager:
             
             # Add image if provided
             if image:
-                # Convert PIL image to format expected by processor
-                temp_path = tempfile.mktemp(suffix='.png')
-                image.save(temp_path)
+                # Convert PIL image to format expected by processor with metadata preservation
+                temp_path = self.config.save_temp_image_with_metadata(image, "vl_input")
                 user_content.append({
                     "type": "image", 
                     "image": f"file://{temp_path}"
@@ -144,13 +143,16 @@ class ChatManager:
             # Get the describe template
             describe_prompt = self.get_describe_template()
             
+            # Save temp image with metadata preservation
+            temp_path = self.config.save_temp_image_with_metadata(image, "describe_input")
+            
             # Create description request
             messages = [{
                 "role": "user",
                 "content": [
                     {
                         "type": "image", 
-                        "image": f"file://{tempfile.mktemp(suffix='.png')}"
+                        "image": f"file://{temp_path}"
                     },
                     {
                         "type": "text", 
@@ -158,11 +160,6 @@ class ChatManager:
                     }
                 ]
             }]
-            
-            # Save temp image
-            temp_path = tempfile.mktemp(suffix='.png')
-            image.save(temp_path)
-            messages[0]["content"][0]["image"] = f"file://{temp_path}"
             
             # Generate description
             description = self.model_manager.chat(messages, max_new_tokens=200)
@@ -180,6 +177,66 @@ class ChatManager:
             traceback.print_exc()
             return f"Error describing image: {str(e)}"
     
+    def get_enhancement_template(self) -> str:
+        """Get prompt enhancement template from file."""
+        if hasattr(self.config, 'template_enhancement') and self.config.template_enhancement:
+            try:
+                path = Path(self.config.template_enhancement)
+                if path.exists():
+                    return path.read_text(encoding='utf-8').strip()
+            except Exception as e:
+                print(f"Failed to load enhancement template: {e}")
+        
+        # Fallback template
+        return """Please enhance this prompt for image generation by adding more detailed and expressive descriptions while preserving the original meaning.
+
+User Input: {}
+
+Enhanced Prompt:"""
+    
+    def enhance_prompt(self, prompt: str, is_negative: bool = False) -> str:
+        """Enhance a prompt using the VL model.
+        
+        Args:
+            prompt: The prompt to enhance
+            is_negative: Whether this is a negative prompt
+            
+        Returns:
+            Enhanced prompt text
+        """
+        if not prompt or not prompt.strip():
+            return ""
+        
+        if not self.model_manager.text_encoder:
+            return "Text encoder not loaded"
+        
+        try:
+            # Get the enhancement template
+            enhancement_template = self.get_enhancement_template()
+            
+            # Format the template with the user's prompt
+            enhancement_prompt = enhancement_template.format(prompt)
+            
+            # Add negative prompt context if needed
+            if is_negative:
+                enhancement_prompt = f"This is a negative prompt (things to avoid). {enhancement_prompt}"
+            
+            # Create enhancement request
+            messages = [{
+                "role": "user",
+                "content": enhancement_prompt
+            }]
+            
+            # Generate enhancement
+            enhanced = self.model_manager.chat(messages, max_new_tokens=300)
+            
+            return enhanced.strip()
+            
+        except Exception as e:
+            print(f"Prompt enhancement failed: {e}")
+            traceback.print_exc()
+            return f"Error enhancing prompt: {str(e)}"
+    
 
 
 # Global chat manager instance
@@ -192,3 +249,51 @@ def get_chat_manager() -> ChatManager:
     if _chat_manager is None:
         _chat_manager = ChatManager()
     return _chat_manager
+
+
+def start_enhancement_chat(prompt: str, is_negative: bool = False) -> List[Dict]:
+    """Start a new chat conversation for prompt enhancement.
+    
+    Args:
+        prompt: The prompt to enhance
+        is_negative: Whether this is a negative prompt
+        
+    Returns:
+        New chat history with enhancement request
+    """
+    chat_manager = get_chat_manager()
+    
+    # Get the enhancement template
+    enhancement_template = chat_manager.get_enhancement_template()
+    
+    # Format the enhancement request
+    if is_negative:
+        enhancement_message = f"This is a negative prompt (things to avoid in the image). {enhancement_template.format(prompt)}"
+    else:
+        enhancement_message = enhancement_template.format(prompt)
+    
+    # Start new conversation with enhancement request
+    new_history = chat_manager.chat_response(enhancement_message, None, [], 300)
+    
+    return new_history
+
+
+def start_image_chat(image, starter_message: str = None) -> List[Dict]:
+    """Start a new chat conversation with an image.
+    
+    Args:
+        image: PIL Image to include in conversation
+        starter_message: Optional starter message, defaults to generic prompt
+        
+    Returns:
+        New chat history with image and starter message
+    """
+    chat_manager = get_chat_manager()
+    
+    if starter_message is None:
+        starter_message = "Here's an image I just generated. What would you like to know about it?"
+    
+    # Start new conversation with image and starter message
+    new_history = chat_manager.chat_response(starter_message, image, [], 300)
+    
+    return new_history

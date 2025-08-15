@@ -49,7 +49,7 @@ def embed_metadata(image: Image.Image, metadata: Dict[str, Any]) -> Image.Image:
 
 
 def extract_metadata(image_path: str) -> Optional[Dict[str, Any]]:
-    """Extract generation metadata from PNG image.
+    """Extract generation metadata from PNG image file.
     
     Args:
         image_path: Path to PNG image
@@ -59,7 +59,23 @@ def extract_metadata(image_path: str) -> Optional[Dict[str, Any]]:
     """
     try:
         image = Image.open(image_path)
+        return extract_metadata_from_pil_image(image)
+    except Exception as e:
+        print(f"Error extracting metadata from {image_path}: {e}")
+    
+    return None
+
+
+def extract_metadata_from_pil_image(image: Image.Image) -> Optional[Dict[str, Any]]:
+    """Extract generation metadata from PIL Image object.
+    
+    Args:
+        image: PIL Image object
         
+    Returns:
+        Dictionary of metadata or None if not found
+    """
+    try:
         # Try to get our custom metadata first
         if hasattr(image, 'text'):
             text_data = image.text
@@ -84,7 +100,7 @@ def extract_metadata(image_path: str) -> Optional[Dict[str, Any]]:
                 return metadata
     
     except Exception as e:
-        print(f"Error extracting metadata from {image_path}: {e}")
+        print(f"Error extracting metadata from PIL image: {e}")
     
     return None
 

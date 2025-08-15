@@ -28,17 +28,12 @@ def create_analysis_tab() -> None:
                 label="Use Template",
                 value=True
             )
-            analysis_mode = gr.Radio(
-                choices=["greedy", "argmax"],
-                value="greedy",
-                label="Mode"
-            )
             max_tokens_slider = gr.Slider(
                 minimum=16,
-                maximum=512,
-                value=96,
-                step=1,
-                label="Max New Tokens (greedy)"
+                maximum=2048,
+                value=1024,
+                step=16,
+                label="Max New Tokens"
             )
             use_cross_check = gr.Checkbox(
                 label="Cross-Encoder Analysis",
@@ -61,7 +56,7 @@ def create_analysis_tab() -> None:
         
         # Secondary encoder analysis (collapsible)
         with gr.Accordion("Secondary Encoder Analysis", open=False) as secondary_accordion:
-            gr.Markdown("Load a second encoder in the [Models Tab](/models) for comparison analysis.")
+            gr.Markdown("Load a second encoder in the Models tab for comparison analysis.")
             
             load_secondary_btn = gr.Button("Go to Models Tab")
             
@@ -94,7 +89,7 @@ def create_analysis_tab() -> None:
     
     # Setup event handlers
     _setup_analysis_handlers(
-        analyzer, analysis_prompt, use_template_check, analysis_mode,
+        analyzer, analysis_prompt, use_template_check,
         max_tokens_slider, use_cross_check, analyze_btn,
         token_info_display, primary_output, alt_output, similarity_output,
         cross_primary_alt, cross_alt_primary, load_secondary_btn, comparison_section
@@ -102,7 +97,7 @@ def create_analysis_tab() -> None:
 
 
 def _setup_analysis_handlers(
-    analyzer, analysis_prompt, use_template_check, analysis_mode,
+    analyzer, analysis_prompt, use_template_check,
     max_tokens_slider, use_cross_check, analyze_btn,
     token_info_display, primary_output, alt_output, similarity_output,
     cross_primary_alt, cross_alt_primary, load_secondary_btn, comparison_section
@@ -110,15 +105,15 @@ def _setup_analysis_handlers(
     """Setup all event handlers for the analysis tab."""
     
     def run_analysis(
-        prompt: str, use_template: bool, mode: str, 
+        prompt: str, use_template: bool, 
         max_tokens: int, use_cross: bool
     ) -> Tuple[str, str, str, str, str, str]:
         """Run encoder analysis."""
         if not prompt.strip():
-            return "Empty prompt", "", "", "", ""
+            return "Empty prompt", "", "", "", "", ""
         
         results = analyzer.analyze_prompt(
-            prompt, mode, use_template, max_tokens, use_cross
+            prompt, "greedy", use_template, max_tokens, use_cross
         )
         
         # Format token info
@@ -151,21 +146,56 @@ def _setup_analysis_handlers(
         
         return token_text, primary_text, alt_text, similarity_text, cross_pa_text, cross_ap_text
     
-    # Connect handlers
+    # Connect handlers (moved below with enhanced functionality)
+    
+    # Handler for going to models tab
+    def go_to_models_tab():
+        """Provide guidance for loading secondary encoder."""
+        from src.models import get_model_manager
+        
+        model_manager = get_model_manager()
+        if model_manager.text_encoder_alt is not None:
+            gr.Info("Secondary encoder already loaded! You can now run comparison analysis.")
+            return gr.update(visible=True)  # Show comparison section
+        else:
+            gr.Info("To load a secondary encoder: 1) Switch to the Models tab, 2) Click 'Load Alternative Text Encoder', 3) Return here for comparison analysis")
+            return gr.update(visible=False)  # Keep comparison section hidden
+    
+    load_secondary_btn.click(
+        fn=go_to_models_tab,
+        outputs=[comparison_section]
+    )
+    
+    # Check for secondary encoder on page load/refresh
+    def check_secondary_encoder():
+        """Check if secondary encoder is loaded and update UI accordingly."""
+        from src.models import get_model_manager
+        
+        model_manager = get_model_manager()
+        has_secondary = model_manager.text_encoder_alt is not None
+        return gr.update(visible=has_secondary)
+    
+    # Update comparison section visibility when analyze button is clicked
+    def enhanced_run_analysis(prompt: str, use_template: bool, max_tokens: int, use_cross: bool):
+        """Run analysis and update comparison section visibility."""
+        results = run_analysis(prompt, use_template, max_tokens, use_cross)
+        
+        # Check if secondary encoder is available
+        from src.models import get_model_manager
+        model_manager = get_model_manager()
+        has_secondary = model_manager.text_encoder_alt is not None
+        comparison_visibility = gr.update(visible=has_secondary)
+        
+        return results + (comparison_visibility,)
+    
     analyze_btn.click(
-        fn=run_analysis,
+        fn=enhanced_run_analysis,
         inputs=[
             analysis_prompt, use_template_check,
-            analysis_mode, max_tokens_slider, use_cross_check
+            max_tokens_slider, use_cross_check
         ],
         outputs=[
             token_info_display, primary_output, alt_output, similarity_output,
-            cross_primary_alt, cross_alt_primary
+            cross_primary_alt, cross_alt_primary, comparison_section
         ]
-    )
-    
-    # Handler for going to models tab
-    load_secondary_btn.click(
-        fn=lambda: gr.Info("Please go to the Models tab to load a secondary encoder"),
-        outputs=[]
     )
