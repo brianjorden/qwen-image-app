@@ -11,10 +11,10 @@ from typing import Dict, Any, Optional, Tuple, List
 from PIL import Image
 
 from .config import get_config
-from .models import get_model_manager, get_pipe
+from .models import get_model_manager, get_pipe, get_pipeline
 from .metadata import save_image_with_metadata
 from .gallery import get_session_manager
-from .prompt import prepare_prompts_for_pipeline, add_magic_prompt, detect_language
+from .prompt import add_magic_prompt, detect_language
 from .step import setup_step_callback, clear_cancellation, GenerationCancelledException
 
 # Global cancellation flag and lock
@@ -80,12 +80,13 @@ def generate_image(
     seed: Optional[int] = None,
     loras: Optional[List[Dict[str, Any]]] = None,
     enhance_prompt: bool = False,
-    apply_template: bool = True,
     add_magic: bool = True,
     second_stage_steps: Optional[int] = None,
     two_stage_mode: str = "Img2Img Mode",
     input_image: Optional[Image.Image] = None,
     noise_interpolation_strength: Optional[float] = None,
+    img2img_mode: str = "true_img2img",  # "true_img2img" or "noise_interpolation"
+    img2img_strength: Optional[float] = None,  # For true img2img mode
     **kwargs
 ) -> Tuple[Optional[Image.Image], Optional[str]]:
     """Generate a single image with full metadata support.
@@ -131,10 +132,18 @@ def generate_image(
     # Determine generation mode
     is_two_stage = second_stage_steps > 0
     is_img2img = input_image is not None
+    is_true_img2img = is_img2img and img2img_mode == "true_img2img"
     
-    # Import edit functions for img2img
+    # Set default img2img strength if not provided
+    if img2img_strength is None:
+        img2img_strength = config.default_img2img_strength
+    
+    # Import edit functions based on img2img mode
     if is_img2img:
-        from .edit import preprocess_for_noise_interpolation, create_noise_interpolation_latents
+        if is_true_img2img:
+            from .edit import preprocess_for_img2img
+        else:
+            from .edit import preprocess_for_noise_interpolation, create_noise_interpolation_latents
     
     # Import metadata function (used in multiple places)
     from .metadata import save_image_with_metadata
@@ -155,7 +164,6 @@ def generate_image(
     
     # Capture original prompt and track transformations
     original_prompt = prompt
-    applied_template_text = None
     applied_magic_text = None
     
     # Enhance prompt if requested
@@ -183,14 +191,6 @@ def generate_image(
             applied_magic_text = ""
         prompt = add_magic_prompt(prompt)
     
-    # Capture template text
-    if apply_template:
-        try:
-            from .prompt import get_image_template
-            applied_template_text = get_image_template()
-        except FileNotFoundError:
-            print("Warning: Could not load template text for metadata")
-            applied_template_text = None
     
     # Handle negative prompt default
     if not negative_prompt and true_cfg_scale > 1.0:
@@ -202,8 +202,14 @@ def generate_image(
             if isinstance(lora, dict):
                 manager.load_lora(lora['path'], lora.get('strength', 1.0))
     
-    # Get pipeline
-    pipe = get_pipe()
+    # Get appropriate pipeline based on mode
+    if is_true_img2img:
+        pipe = get_pipeline("img2img")
+        print("Using true img2img pipeline")
+    else:
+        pipe = get_pipeline("txt2img")
+        if is_img2img:
+            print("Using txt2img pipeline with noise interpolation")
     
     # Setup step callback - always enabled for cancellation support
     save_steps = kwargs.get('save_steps', False)
@@ -242,24 +248,33 @@ def generate_image(
     processed_input_image = None
     if is_img2img:
         try:
-            processed_input_image, status = preprocess_for_noise_interpolation(input_image, width, height, noise_interpolation_strength)
-            print(f"Img2img: {status}")
+            if is_true_img2img:
+                processed_input_image, status = preprocess_for_img2img(input_image, width, height, img2img_strength)
+                print(f"True img2img: {status}")
+            else:
+                processed_input_image, status = preprocess_for_noise_interpolation(input_image, width, height, noise_interpolation_strength)
+                print(f"Noise interpolation: {status}")
         except ValueError as e:
             print(f"Img2img preprocessing failed: {e}")
             return None, None
     
     generation_type = ""
     if is_img2img and is_two_stage:
-        generation_type = "(Img2img + Two-stage)"
+        img_mode = "True Img2img" if is_true_img2img else "Noise Interpolation"
+        generation_type = f"({img_mode} + Two-stage)"
     elif is_img2img:
-        generation_type = "(Img2img)"
+        img_mode = "True Img2img" if is_true_img2img else "Noise Interpolation"
+        generation_type = f"({img_mode})"
     elif is_two_stage:
         generation_type = "(Two-stage)"
     
     print(f"Generating '{name}' in session '{session}' {generation_type}")
     print(f"Settings: {width}x{height}, steps={num_inference_steps}{f'+{second_stage_steps}' if is_two_stage else ''}, cfg={true_cfg_scale}, seed={seed}")
     if is_img2img:
-        print(f"Img2img strength: {noise_interpolation_strength}")
+        if is_true_img2img:
+            print(f"True img2img strength: {img2img_strength}")
+        else:
+            print(f"Noise interpolation strength: {noise_interpolation_strength}")
     
     try:
         # Variables to track results
@@ -272,12 +287,18 @@ def generate_image(
         
         # Handle img2img input
         if is_img2img:
-            # Create img2img latents using noise interpolation
-            img2img_latents = create_noise_interpolation_latents(
-                processed_input_image, noise_interpolation_strength, seed, width, height
-            )
-            stage1_gen_args['latents'] = img2img_latents
-            print(f"Starting from img2img latents, shape: {img2img_latents.shape}")
+            if is_true_img2img:
+                # Use true img2img pipeline with image and strength
+                stage1_gen_args['image'] = processed_input_image
+                stage1_gen_args['strength'] = img2img_strength
+                print(f"Using true img2img with strength {img2img_strength}")
+            else:
+                # Create img2img latents using noise interpolation
+                img2img_latents = create_noise_interpolation_latents(
+                    processed_input_image, noise_interpolation_strength, seed, width, height
+                )
+                stage1_gen_args['latents'] = img2img_latents
+                print(f"Starting from noise interpolation latents, shape: {img2img_latents.shape}")
         
         # Generate first stage (or only stage)
         stage1_steps = num_inference_steps
@@ -304,7 +325,6 @@ def generate_image(
                 'enhanced_prompt': enhanced_prompt,
                 'final_processed_prompt': prompt,
                 'negative_prompt': negative_prompt,
-                'applied_template_text': applied_template_text,
                 'applied_magic_text': applied_magic_text,
                 'width': width,
                 'height': height,
@@ -317,7 +337,10 @@ def generate_image(
                 'model_info': manager.model_info.copy(),
                 'is_stage1_of_two_stage': True,
                 'two_stage_mode': two_stage_mode,
-                'noise_interpolation_strength': noise_interpolation_strength if two_stage_mode == "Img2Img Mode" else None,
+                'img2img_mode': img2img_mode if is_img2img else None,
+                'is_true_img2img': is_true_img2img,
+                'noise_interpolation_strength': noise_interpolation_strength if (two_stage_mode == "Img2Img Mode" or (is_img2img and not is_true_img2img)) else None,
+                'img2img_strength': img2img_strength if is_true_img2img else None,
                 'input_image_used': is_img2img
             }
             
@@ -360,7 +383,6 @@ def generate_image(
             'enhanced_prompt': enhanced_prompt,
             'final_processed_prompt': prompt,
             'negative_prompt': negative_prompt,
-            'applied_template_text': applied_template_text,
             'applied_magic_text': applied_magic_text,
             'width': width,
             'height': height,
@@ -374,8 +396,11 @@ def generate_image(
             # Generation mode metadata
             'is_two_stage': is_two_stage,
             'is_img2img': is_img2img,
+            'img2img_mode': img2img_mode if is_img2img else None,
+            'is_true_img2img': is_true_img2img,
             'two_stage_mode': two_stage_mode if is_two_stage else None,
-            'noise_interpolation_strength': noise_interpolation_strength if (is_two_stage or is_img2img) else None,
+            'noise_interpolation_strength': noise_interpolation_strength if (is_two_stage or (is_img2img and not is_true_img2img)) else None,
+            'img2img_strength': img2img_strength if is_true_img2img else None,
             'first_stage_steps': stage1_steps if is_two_stage else None,
             'second_stage_steps': second_stage_steps if is_two_stage else None,
             'first_stage_image_path': str(first_stage_path) if first_stage_path else None,

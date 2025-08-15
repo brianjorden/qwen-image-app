@@ -2,6 +2,7 @@ auto_load_pipeline: true
 default_cfg: 2.0
 default_height: 512
 default_noise_interpolation_strength: 0.99
+default_img2img_strength: 0.6
 default_max_new_tokens: 2048
 default_negative: ' '
 default_seed: 42
@@ -12,7 +13,7 @@ enable_cpu_offload: false
 enable_lora: true
 enable_metadata_embed: true
 enable_per_step_saving: false
-enable_prompt_enhancement: true
+add_positive_prompt_magic: true
 enable_step_callback: false
 enable_vae_tiling: true
 gpu_text_encoder: 2:1.5GiB,3:16GiB
@@ -35,7 +36,6 @@ output_quality: 95
 prompt_enhance_max_tokens: 1024
 template_magic: ./templates/magic.txt
 prompt_max_tokens: 1024
-prompt_template_drop_idx: 34
 resolution_16_9: 1664,928
 resolution_1_1: 1328,1328
 resolution_3_4: 1140,1472

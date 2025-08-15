@@ -1,5 +1,5 @@
 """
-Chat tab UI for the Qwen-Image application.
+Chat tab UI for the qwen-image-app.
 """
 
 import gradio as gr

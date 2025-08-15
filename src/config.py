@@ -23,15 +23,15 @@ class Config:
         'torch_dtype', 'low_cpu_mem_usage', 'local_files_only', 'enable_vae_tiling',
         # Generation defaults
         'default_steps', 'default_cfg', 'default_width', 'default_height', 
-        'default_seed', 'default_negative', 'default_noise_interpolation_strength',
+        'default_seed', 'default_negative', 'default_noise_interpolation_strength', 'default_img2img_strength',
         # Resolution presets
         'resolution_1_1', 'resolution_16_9', 'resolution_9_16',
         'resolution_4_3', 'resolution_3_4',
         # Features
-        'enable_step_callback', 'enable_lora', 'enable_prompt_enhancement',
+        'enable_step_callback', 'enable_lora', 'add_positive_prompt_magic',
         'enable_metadata_embed',
         # Prompt processing
-        'prompt_template_drop_idx', 'template_magic',
+        'template_magic',
         'prompt_max_tokens', 'max_context_length', 'default_max_new_tokens',
         'prompt_enhance_max_tokens', 'enable_per_step_saving',
         # Output

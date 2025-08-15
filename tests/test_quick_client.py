@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Quick gradio_client-based validation test for the Qwen-Image application.
+Quick gradio_client-based validation test for the qwen-image-app.
 Tests basic functionality with minimal resource usage.
 """
 
@@ -82,7 +82,6 @@ class TestQuickClient(unittest.TestCase):
                 1.0, # cfg_scale
                 42,  # seed
                 False, # randomize_seed
-                True,  # apply_template
                 False, # add_magic
                 False, # save_steps
                 0,   # second_stage_steps

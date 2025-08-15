@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test runner for Qwen-Image application
+# Test runner for qwen-image-app
 
 # Activate virtual environment
 if [ -d ".venv" ]; then

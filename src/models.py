@@ -13,11 +13,10 @@ from transformers import (
     Qwen2Tokenizer,
     AutoProcessor
 )
-from diffusers import DiffusionPipeline, AutoencoderKL, AutoencoderKLQwenImage, FlowMatchEulerDiscreteScheduler, QwenImagePipeline
+from diffusers import DiffusionPipeline, AutoencoderKL, AutoencoderKLQwenImage, FlowMatchEulerDiscreteScheduler, QwenImagePipeline, QwenImageImg2ImgPipeline
 from peft import PeftModel
 
 from .config import get_config
-from .prompt import apply_template, extract_content_hidden_states
 
 
 class ModelManager:
@@ -33,6 +32,7 @@ class ModelManager:
         self.vae = None
         self.scheduler = None
         self.pipe = None
+        self.pipe_img2img = None  # Separate img2img pipeline
         
         # Component status
         self.component_status = {
@@ -43,7 +43,8 @@ class ModelManager:
             'transformer': False,
             'vae': False,
             'scheduler': False,
-            'pipeline': False
+            'pipeline': False,
+            'pipeline_img2img': False
         }
         
         # LoRA models
@@ -344,6 +345,47 @@ class ModelManager:
         
         return self.pipe
     
+    def build_img2img_pipeline(self, force_rebuild: bool = False) -> QwenImageImg2ImgPipeline:
+        """Build the img2img pipeline from components.
+        
+        Args:
+            force_rebuild: Force rebuild even if already built
+            
+        Returns:
+            Assembled img2img pipeline
+        """
+        if self.pipe_img2img and not force_rebuild:
+            return self.pipe_img2img
+        
+        # Ensure all components are loaded
+        if not self.text_encoder:
+            self.load_text_encoder()
+        if not self.tokenizer:
+            self.load_tokenizer()
+        if not self.transformer:
+            self.load_transformer()
+        if not self.vae:
+            self.load_vae()
+        if not self.scheduler:
+            self.load_scheduler()
+        
+        config = get_config()
+        print("Building img2img pipeline from components")
+        
+        # Use the actual QwenImageImg2ImgPipeline from diffusers
+        self.pipe_img2img = QwenImageImg2ImgPipeline(
+            text_encoder=self.text_encoder,
+            tokenizer=self.tokenizer,
+            transformer=self.transformer,
+            vae=self.vae,
+            scheduler=self.scheduler
+        )
+        
+        self.component_status['pipeline_img2img'] = True
+        print("Img2img pipeline assembled")
+        
+        return self.pipe_img2img
+    
     def load_lora(self, lora_path: str, strength: float = 1.0) -> bool:
         """Load a LoRA model.
         
@@ -411,6 +453,9 @@ class ModelManager:
         elif component == 'pipeline' and self.pipe:
             self.pipe = None
             self.component_status['pipeline'] = False
+        elif component == 'pipeline_img2img' and self.pipe_img2img:
+            self.pipe_img2img = None
+            self.component_status['pipeline_img2img'] = False
         
         # Clear CUDA cache
         gc.collect()
@@ -421,7 +466,7 @@ class ModelManager:
     
     def unload_all(self):
         """Unload all components."""
-        for component in ['pipeline', 'transformer', 'vae', 'scheduler', 
+        for component in ['pipeline', 'pipeline_img2img', 'transformer', 'vae', 'scheduler', 
                          'text_encoder', 'text_encoder_alt', 'tokenizer', 'processor']:
             self.unload_component(component)
         
@@ -538,9 +583,30 @@ def get_model_manager() -> ModelManager:
 
 
 def get_pipe() -> Any:
-    """Get the pipeline, loading if necessary."""
+    """Get the text-to-image pipeline, loading if necessary."""
     manager = get_model_manager()
     return manager.build_pipeline()
+
+
+def get_img2img_pipe() -> QwenImageImg2ImgPipeline:
+    """Get the img2img pipeline, loading if necessary."""
+    manager = get_model_manager()
+    return manager.build_img2img_pipeline()
+
+
+def get_pipeline(mode: str = "txt2img") -> Any:
+    """Get pipeline based on generation mode.
+    
+    Args:
+        mode: Generation mode ("txt2img" or "img2img")
+        
+    Returns:
+        Appropriate pipeline for the mode
+    """
+    if mode == "img2img":
+        return get_img2img_pipe()
+    else:
+        return get_pipe()
 
 
 def unload_models():

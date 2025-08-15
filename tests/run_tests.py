@@ -1,5 +1,5 @@
 """
-Test runner for the Qwen-Image application tests.
+Test runner for the qwen-image-app tests.
 """
 
 import sys
@@ -32,11 +32,12 @@ def main():
         test_dir / "test_imports.py",
         test_dir / "test_two_stage_generation.py",
         test_dir / "test_noise_interpolation.py",
+        test_dir / "test_img2img_pipeline.py",
         test_dir / "test_image_upload.py",
         test_dir / "test_quick_client.py",
     ]
     
-    print("🚀 STARTING QWEN-IMAGE APPLICATION TEST SUITE")
+    print("🚀 STARTING qwen-image-app TEST SUITE")
     
     all_passed = True
     results = {}

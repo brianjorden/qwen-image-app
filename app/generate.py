@@ -1,5 +1,5 @@
 """
-Generation tab UI for the Qwen-Image application.
+Generation tab UI for the qwen-image-app.
 """
 
 import gradio as gr
@@ -57,18 +57,40 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
             # Image input for noise interpolation
             with gr.Row():
                 input_image = gr.Image(
-                    label="Input Image (Optional - Upload for noise interpolation)",
+                    label="Input Image (Optional - Upload for img2img generation)",
                     type="pil",
                     sources=["upload", "clipboard"]
                 )
                 with gr.Column():
+                    # Img2img mode selector
+                    img2img_mode = gr.Radio(
+                        choices=["true_img2img", "noise_interpolation"],
+                        value="true_img2img",
+                        label="Img2img Mode",
+                        info="True Img2img: Proper diffusion process | Noise Interpolation: Creative mixing",
+                        visible=True,
+                        interactive=False  # Initially grayed out, enabled when image uploaded
+                    )
+                    
+                    # Mode-specific strength controls  
                     noise_interpolation_strength = gr.Slider(
                         minimum=0.0,
                         maximum=1.0,
                         value=config.default_noise_interpolation_strength,
                         step=0.05,
-                        label="Transformation Strength (0.0 = minimal, 1.0 = maximum weirdness)",
-                        visible=False  # Initially hidden, shown when image uploaded
+                        label="Noise Interpolation Strength (0.0 = minimal, 1.0 = maximum weirdness)",
+                        visible=True,
+                        interactive=False  # Initially grayed out, enabled when mode is selected
+                    )
+                    
+                    img2img_strength = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=config.default_img2img_strength,
+                        step=0.05,
+                        label="True Img2img Strength (0.0 = minimal change, 1.0 = maximum change)",
+                        visible=True,
+                        interactive=False  # Initially grayed out, enabled when mode is selected
                     )
                     
                     clear_input_btn = gr.Button("Clear Input Image", visible=False)
@@ -159,14 +181,10 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
                     placeholder="Optional custom name"
                 )
                 
-                apply_template = gr.Checkbox(
-                    label="Apply Training Template",
-                    value=True
-                )
                 
                 add_magic = gr.Checkbox(
-                    label="Add Positive Magic",
-                    value=True
+                    label="Add Positive Prompt Magic",
+                    value=config.add_positive_prompt_magic
                 )
                 
                 save_steps = gr.Checkbox(
@@ -272,10 +290,10 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
         session_dropdown, refresh_sessions_btn, session_state,
         prompt_input, prompt_tokens, enhance_prompt_btn,
         negative_prompt_input, negative_tokens, enhance_negative_btn,
-        input_image, noise_interpolation_strength, clear_input_btn, use_as_input_btn,
+        input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn,
         aspect_ratio, width_input, height_input,
         steps_input, cfg_scale_input, seed_input, randomize_seed, continuous_generation,
-        name_input, apply_template, add_magic, save_steps, second_stage_steps,
+        name_input, add_magic, save_steps, second_stage_steps,
         two_stage_mode,
         lora_inputs, generate_btn, stop_btn,
         output_image, copy_image_btn, download_image_btn, apply_metadata_btn, clear_image_btn, send_to_chat_btn,
@@ -293,10 +311,10 @@ def _setup_generation_handlers(
     session_dropdown, refresh_sessions_btn, session_state,
     prompt_input, prompt_tokens, enhance_prompt_btn,
     negative_prompt_input, negative_tokens, enhance_negative_btn,
-    input_image, noise_interpolation_strength, clear_input_btn, use_as_input_btn,
+    input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn,
     aspect_ratio, width_input, height_input,
     steps_input, cfg_scale_input, seed_input, randomize_seed, continuous_generation,
-    name_input, apply_template, add_magic, save_steps, second_stage_steps,
+    name_input, add_magic, save_steps, second_stage_steps,
     two_stage_mode,
     lora_inputs, generate_btn, stop_btn,
     output_image, copy_image_btn, download_image_btn, apply_metadata_btn, clear_image_btn, send_to_chat_btn,
@@ -358,19 +376,26 @@ def _setup_generation_handlers(
     input_image.change(
         fn=_handle_image_upload,
         inputs=[input_image],
-        outputs=[noise_interpolation_strength, clear_input_btn, use_as_input_btn, 
+        outputs=[img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn, 
                 input_metadata_accordion, input_metadata_display, input_image_metadata]
     )
     
+    # Img2img mode change handler
+    img2img_mode.change(
+        fn=_handle_img2img_mode_change,
+        inputs=[img2img_mode],
+        outputs=[noise_interpolation_strength, img2img_strength]
+    )
+    
     clear_input_btn.click(
-        fn=lambda: (None, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), "", {}),
-        outputs=[input_image, noise_interpolation_strength, clear_input_btn, use_as_input_btn, input_metadata_accordion, input_metadata_display, input_image_metadata]
+        fn=lambda: (None, gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "", {}),
+        outputs=[input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn, input_metadata_accordion, input_metadata_display, input_image_metadata]
     )
     
     use_as_input_btn.click(
         fn=_use_generated_as_input,
         inputs=[output_image],
-        outputs=[input_image, noise_interpolation_strength, clear_input_btn, use_as_input_btn]
+        outputs=[input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn]
     )
     
     # Input image modal handlers
@@ -432,8 +457,8 @@ def _setup_generation_handlers(
     gen_inputs = [
         session_dropdown, prompt_input, negative_prompt_input, name_input,
         width_input, height_input, steps_input, cfg_scale_input,
-        seed_input, randomize_seed, apply_template, add_magic, save_steps, second_stage_steps,
-        two_stage_mode, input_image, noise_interpolation_strength
+        seed_input, randomize_seed, add_magic, save_steps, second_stage_steps,
+        two_stage_mode, input_image, img2img_mode, noise_interpolation_strength, img2img_strength
     ]
     
     if config.enable_lora:
@@ -525,9 +550,9 @@ def _generate_image_handler(*args, current_metadata_state) -> Tuple:
     # Unpack arguments
     session, prompt, negative_prompt, name = args[:4]
     width, height, steps, cfg_scale = args[4:8]
-    seed, randomize, apply_template, add_magic, save_steps, second_stage_steps, two_stage_mode, input_image, noise_interpolation_strength = args[8:17]
+    seed, randomize, add_magic, save_steps, second_stage_steps, two_stage_mode, input_image, img2img_mode, noise_interpolation_strength, img2img_strength = args[8:18]
     
-    lora_args = args[17:] if config.enable_lora else []
+    lora_args = args[18:] if config.enable_lora else []
     
     try:
         # Handle random seed
@@ -558,13 +583,14 @@ def _generate_image_handler(*args, current_metadata_state) -> Tuple:
             true_cfg_scale=cfg_scale,
             seed=seed,
             loras=loras,
-            apply_template=apply_template,
             add_magic=add_magic,
             save_steps=save_steps,
             second_stage_steps=second_stage_steps,
             two_stage_mode=two_stage_mode,
             input_image=input_image,
-            noise_interpolation_strength=noise_interpolation_strength
+            img2img_mode=img2img_mode,
+            noise_interpolation_strength=noise_interpolation_strength,
+            img2img_strength=img2img_strength
         )
         
         if image:
@@ -619,7 +645,9 @@ def _handle_image_upload(image):
             print(f"Could not extract metadata from uploaded image: {e}")
         
         return (
-            gr.update(visible=True),   # noise_interpolation_strength slider
+            gr.update(visible=True, interactive=True),   # img2img_mode selector - enabled
+            gr.update(visible=True, interactive=False),  # noise_interpolation_strength slider - grayed out (default mode is true_img2img)
+            gr.update(visible=True, interactive=True),   # img2img_strength slider - active (default mode)
             gr.update(visible=True),   # clear_input_btn
             gr.update(visible=True),   # use_as_input_btn (always visible)
             gr.update(visible=metadata_visible),  # input_metadata_accordion
@@ -628,7 +656,9 @@ def _handle_image_upload(image):
         )
     else:
         return (
-            gr.update(visible=False),  # noise_interpolation_strength slider
+            gr.update(visible=True, interactive=False),  # img2img_mode selector - grayed out
+            gr.update(visible=True, interactive=False),  # noise_interpolation_strength slider - grayed out
+            gr.update(visible=True, interactive=False),  # img2img_strength slider - grayed out
             gr.update(visible=False),  # clear_input_btn
             gr.update(visible=True),   # use_as_input_btn (always visible)
             gr.update(visible=False),  # input_metadata_accordion
@@ -642,14 +672,18 @@ def _use_generated_as_input(generated_image):
     if generated_image is not None:
         return (
             generated_image,           # Set as input_image
-            gr.update(visible=True),   # Show noise_interpolation_strength slider
+            gr.update(visible=True, interactive=True),   # Enable img2img_mode selector
+            gr.update(visible=True, interactive=False),  # Disable noise_interpolation_strength slider initially
+            gr.update(visible=True, interactive=True),   # Enable img2img_strength slider (default mode is true_img2img)
             gr.update(visible=True),   # Show clear_input_btn
             gr.update(visible=True)    # Keep use_as_input_btn visible (always visible)
         )
     else:
         return (
             None,                      # No input_image
-            gr.update(visible=False),  # Hide noise_interpolation_strength slider
+            gr.update(visible=True, interactive=False),  # Gray out img2img_mode selector
+            gr.update(visible=True, interactive=False),  # Gray out noise_interpolation_strength slider
+            gr.update(visible=True, interactive=False),  # Gray out img2img_strength slider
             gr.update(visible=False),  # Hide clear_input_btn
             gr.update(visible=True)    # Keep use_as_input_btn visible (always visible)
         )
@@ -838,3 +872,17 @@ def _apply_input_metadata(metadata):
     except Exception as e:
         gr.Warning(f"Failed to apply metadata: {e}")
         return [gr.update() for _ in range(8)]  # Return no updates for all 8 outputs
+
+
+def _handle_img2img_mode_change(img2img_mode):
+    """Handle img2img mode change to enable/disable appropriate strength sliders."""
+    if img2img_mode == "true_img2img":
+        return (
+            gr.update(visible=True, interactive=False),  # Disable noise_interpolation_strength
+            gr.update(visible=True, interactive=True)    # Enable img2img_strength
+        )
+    else:  # noise_interpolation mode
+        return (
+            gr.update(visible=True, interactive=True),   # Enable noise_interpolation_strength
+            gr.update(visible=True, interactive=False)   # Disable img2img_strength
+        )

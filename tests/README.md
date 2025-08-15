@@ -1,6 +1,6 @@
-# Qwen-Image Application Tests
+# qwen-image-app Tests
 
-This directory contains tests for the Qwen-Image application, especially focused on validating the GUI/business logic separation refactoring.
+This directory contains tests for the qwen-image-app, especially focused on validating the GUI/business logic separation refactoring.
 
 ## Test Files
 
@@ -35,6 +35,17 @@ Tests the noise interpolation approach for img2img mode:
 - Tests performance characteristics
 - Tests integration with metadata system
 
+### `test_img2img_pipeline.py`
+Tests the new true img2img pipeline functionality:
+- Tests pipeline loading and mode selection (true_img2img vs noise_interpolation)
+- Tests optimal strength presets for different transformation levels
+- Tests parameter validation for true img2img mode
+- Tests image preprocessing for true img2img generation
+- Tests generation workflow with both img2img modes
+- Tests metadata tracking for img2img mode information
+- Tests UI mode switching and strength slider visibility
+- Tests comparison between noise interpolation and true img2img approaches
+
 ### `test_image_upload.py`
 Tests the image upload and img2img functionality:
 - Tests image validation and preprocessing from various sources
@@ -61,6 +72,8 @@ python tests/test_structure.py
 python tests/test_imports.py
 python tests/test_two_stage_generation.py
 python tests/test_noise_interpolation.py
+python tests/test_img2img_pipeline.py
+python tests/test_image_upload.py
 ```
 
 ### Quick Validation

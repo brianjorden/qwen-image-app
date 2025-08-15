@@ -38,7 +38,7 @@ class EncoderAnalyzer:
         tokenizer = self._ensure_tokenizer()
         
         text = get_prompt_template().format(prompt) if use_template else prompt
-        drop_idx = self.config.prompt_template_drop_idx if use_template else 0
+        drop_idx = getattr(self.config, 'prompt_template_drop_idx', 34) if use_template else 0
         
         tokens = tokenizer(
             text,
@@ -81,7 +81,7 @@ class EncoderAnalyzer:
         tokenizer = self._ensure_tokenizer()
         
         text = get_prompt_template().format(prompt) if use_template else prompt
-        drop_idx = self.config.prompt_template_drop_idx if use_template else 0
+        drop_idx = getattr(self.config, 'prompt_template_drop_idx', 34) if use_template else 0
         
         tokens = tokenizer(
             text,
@@ -147,7 +147,7 @@ class EncoderAnalyzer:
         tokenizer = self._ensure_tokenizer()
         
         text = get_prompt_template().format(prompt) if use_template else prompt
-        drop_idx = self.config.prompt_template_drop_idx if use_template else 0
+        drop_idx = getattr(self.config, 'prompt_template_drop_idx', 34) if use_template else 0
         
         tokens = tokenizer(
             text,
@@ -215,7 +215,7 @@ class EncoderAnalyzer:
         tokenizer = self._ensure_tokenizer()
         
         text = get_prompt_template().format(prompt) if use_template else prompt
-        drop_idx = self.config.prompt_template_drop_idx if use_template else 0
+        drop_idx = getattr(self.config, 'prompt_template_drop_idx', 34) if use_template else 0
         
         tokens = tokenizer(
             text,
@@ -275,7 +275,7 @@ class EncoderAnalyzer:
         tokenizer = self._ensure_tokenizer()
         
         text = get_prompt_template().format(prompt) if use_template else prompt
-        drop_idx = self.config.prompt_template_drop_idx if use_template else 0
+        drop_idx = getattr(self.config, 'prompt_template_drop_idx', 34) if use_template else 0
         
         tokens = tokenizer(
             text,

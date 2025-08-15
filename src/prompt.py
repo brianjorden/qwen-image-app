@@ -10,8 +10,13 @@ from .config import get_config
 from pathlib import Path
 
 
-def get_image_template() -> str:
-    """Get image generation template from file."""
+
+
+def get_prompt_template() -> str:
+    """Get image generation template from file.
+    
+    This is used by the analysis module to understand prompt processing.
+    """
     config = get_config()
     if hasattr(config, 'template_image') and config.template_image:
         try:
@@ -21,12 +26,9 @@ def get_image_template() -> str:
         except Exception as e:
             print(f"Failed to load image template: {e}")
     
-    raise FileNotFoundError("Image template file not found or not configured")
+    # Fallback template if file not found
+    return "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, quantity, text, spatial relationships of the objects and background:<|im_end|>\n<|im_start|>user\n{}\n<|im_end|>\n<|im_start|>assistant\n"
 
-# Load template dynamically
-def get_prompt_template() -> str:
-    """Get the current prompt template."""
-    return get_image_template()
 
 def get_enhancement_template(language: str = 'en') -> str:
     """Get enhancement template from file."""
@@ -63,76 +65,8 @@ def detect_language(text: str) -> str:
     return 'en'
 
 
-def apply_template(prompt: str, tokenizer: Optional[Qwen2Tokenizer] = None) -> Tuple[torch.Tensor, torch.Tensor, int]:
-    """Apply the training template to a prompt and tokenize.
-    
-    Args:
-        prompt: Raw prompt text
-        tokenizer: Optional tokenizer instance (will load if not provided)
-        
-    Returns:
-        Tuple of (input_ids, attention_mask, content_tokens)
-    """
-    config = get_config()
-    
-    if tokenizer is None:
-        tokenizer = Qwen2Tokenizer.from_pretrained(
-            config.model_tokenizer,
-            local_files_only=config.local_files_only
-        )
-    
-    # Apply template
-    templated = get_prompt_template().format(prompt)
-    
-    # Tokenize with proper length limits
-    tokens = tokenizer(
-        templated,
-        max_length=config.prompt_max_tokens + config.prompt_template_drop_idx,
-        padding=True,
-        truncation=True,
-        return_tensors="pt"
-    )
-    
-    # Calculate content tokens (after dropping template)
-    total_tokens = tokens.attention_mask.sum().item()
-    content_tokens = max(0, total_tokens - config.prompt_template_drop_idx)
-    
-    return tokens.input_ids, tokens.attention_mask, content_tokens
 
 
-def extract_content_hidden_states(hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> List[torch.Tensor]:
-    """Extract content hidden states after dropping template tokens.
-    
-    Args:
-        hidden_states: Full hidden states from encoder [B, T, H]
-        attention_mask: Attention mask [B, T]
-        
-    Returns:
-        List of content hidden states per batch item
-    """
-    config = get_config()
-    drop_idx = config.prompt_template_drop_idx
-    
-    # Get valid lengths for each batch item
-    bool_mask = attention_mask.bool()
-    valid_lengths = bool_mask.sum(dim=1)
-    
-    # Extract hidden states
-    batch_size = hidden_states.shape[0]
-    content_hidden = []
-    
-    for i in range(batch_size):
-        valid_len = valid_lengths[i].item()
-        start_idx = min(drop_idx, valid_len)
-        end_idx = valid_len
-        
-        if end_idx > start_idx:
-            content_hidden.append(hidden_states[i, start_idx:end_idx])
-        else:
-            # No content tokens
-            content_hidden.append(hidden_states[i, :0])  # Empty tensor
-    
-    return content_hidden
 
 
 def add_magic_prompt(prompt: str, language: Optional[str] = None) -> str:
@@ -320,33 +254,3 @@ def blend_negative_prompts(
     return ", ".join(p.strip() for p in negative_prompts if p.strip())
 
 
-def prepare_prompts_for_pipeline(
-    prompt: str,
-    negative_prompt: str = "",
-    apply_template_flag: bool = True,
-    add_magic: bool = True
-) -> Tuple[str, str]:
-    """Prepare prompts for the generation pipeline.
-    
-    Args:
-        prompt: Positive prompt
-        negative_prompt: Negative prompt
-        apply_template_flag: Whether to apply the training template
-        add_magic: Whether to add magic quality prompts
-        
-    Returns:
-        Tuple of (processed_prompt, processed_negative)
-    """
-    # Add magic prompt if requested
-    if add_magic:
-        prompt = add_magic_prompt(prompt)
-    
-    # Template is applied in the pipeline, we just return the prompts
-    # The pipeline will handle the template wrapping and token dropping
-    
-    # Ensure negative prompt is at least a space if CFG is being used
-    config = get_config()
-    if not negative_prompt and config.default_cfg > 1.0:
-        negative_prompt = " "
-    
-    return prompt, negative_prompt

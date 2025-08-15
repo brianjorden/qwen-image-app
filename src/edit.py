@@ -1,5 +1,5 @@
 """
-Image editing and noise interpolation utilities for the Qwen-Image application.
+Image editing and noise interpolation utilities for the qwen-image-app.
 
 This module provides utilities for processing input images for noise interpolation generation,
 including validation, preprocessing, and encoding operations.
@@ -11,7 +11,7 @@ from typing import Tuple, Optional, Union
 from pathlib import Path
 
 from .config import get_config
-from .models import get_model_manager, get_pipe
+from .models import get_model_manager, get_pipe, get_img2img_pipe
 
 
 def validate_input_image(image: Union[str, Path, Image.Image]) -> Image.Image:
@@ -263,3 +263,128 @@ def preprocess_for_noise_interpolation(
         status = f"Image ready for noise interpolation generation at {processed_image.size}"
     
     return processed_image, status
+
+
+def get_optimal_img2img_strength(transformation_level: str = "medium") -> float:
+    """Get optimal img2img strength based on desired transformation level.
+    
+    Args:
+        transformation_level: Desired transformation level ("minimal", "low", "medium", "high", "maximum")
+        
+    Returns:
+        Recommended strength value for true img2img
+    """
+    strength_presets = {
+        "minimal": 0.2,   # Very subtle changes, preserve most structure
+        "low": 0.4,       # Light modifications, keep main elements
+        "medium": 0.6,    # Balanced transformation
+        "high": 0.8,      # Significant changes, creative interpretation
+        "maximum": 0.95   # Nearly complete regeneration
+    }
+    
+    return strength_presets.get(transformation_level, 0.6)
+
+
+def validate_img2img_parameters(
+    image: Optional[Image.Image],
+    strength: float,
+    width: int,
+    height: int
+) -> Tuple[bool, str]:
+    """Validate parameters for true img2img generation.
+    
+    Args:
+        image: Input image (can be None)
+        strength: Img2img strength value  
+        width: Target width
+        height: Target height
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if image is None:
+        return False, "No input image provided"
+    
+    if not isinstance(image, Image.Image):
+        return False, "Invalid image format"
+    
+    if not (0.0 <= strength <= 1.0):
+        return False, f"Strength must be between 0.0 and 1.0, got {strength}"
+    
+    if width <= 0 or height <= 0:
+        return False, f"Invalid dimensions: {width}x{height}"
+    
+    # Check if dimensions are reasonable
+    if width > 4096 or height > 4096:
+        return False, f"Dimensions too large: {width}x{height} (max 4096x4096)"
+    
+    config = get_config()
+    if width % config.resolution_multiple != 0 or height % config.resolution_multiple != 0:
+        return False, f"Dimensions must be multiples of {config.resolution_multiple}"
+    
+    return True, ""
+
+
+def preprocess_for_img2img(
+    image: Union[str, Path, Image.Image],
+    width: int,
+    height: int,
+    strength: float = 0.6
+) -> Tuple[Image.Image, str]:
+    """Preprocess an image for true img2img generation.
+    
+    Args:
+        image: Input image (path or PIL Image)
+        width: Target generation width
+        height: Target generation height  
+        strength: Img2img strength
+        
+    Returns:
+        Tuple of (processed_image, status_message)
+        
+    Raises:
+        ValueError: If preprocessing fails
+    """
+    # Validate and load image
+    processed_image = validate_input_image(image)
+    original_size = processed_image.size
+    
+    # Validate parameters  
+    is_valid, error_msg = validate_img2img_parameters(processed_image, strength, width, height)
+    if not is_valid:
+        raise ValueError(error_msg)
+    
+    # Resize if necessary
+    processed_image = resize_image_for_generation(processed_image, width, height)
+    
+    # Create status message
+    if original_size != processed_image.size:
+        status = f"Image resized from {original_size} to {processed_image.size} for img2img generation"
+    else:
+        status = f"Image ready for img2img generation at {processed_image.size}"
+    
+    return processed_image, status
+
+
+def compare_img2img_modes(input_image: Image.Image, strength: float = 0.6) -> str:
+    """Compare noise interpolation vs true img2img modes.
+    
+    Args:
+        input_image: Input image for comparison
+        strength: Strength value to compare
+        
+    Returns:
+        Comparison description
+    """
+    noise_desc = f"Noise Interpolation (strength={strength}):\n"
+    noise_desc += f"- Mixes image latents with random noise\n"
+    noise_desc += f"- Creative interpretation with {strength:.0%} randomness\n"
+    noise_desc += f"- Good for artistic variations\n\n"
+    
+    img2img_desc = f"True Img2img (strength={strength}):\n"
+    img2img_desc += f"- Starts denoising from partially noised image\n"
+    img2img_desc += f"- Follows proper diffusion img2img process\n"
+    img2img_desc += f"- Better structure preservation and coherence\n"
+    img2img_desc += f"- More predictable transformations"
+    
+    return noise_desc + img2img_desc

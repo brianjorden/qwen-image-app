@@ -34,7 +34,7 @@ def embed_metadata(image: Image.Image, metadata: Dict[str, Any]) -> Image.Image:
     
     # Also add key fields as separate entries for compatibility
     for key in ['prompt', 'negative_prompt', 'seed', 'steps', 'cfg_scale', 
-                'width', 'height', 'model_info']:
+                'width', 'height', 'model_info', 'img2img_mode', 'is_true_img2img']:
         if key in metadata:
             value = metadata[key]
             if isinstance(value, dict):

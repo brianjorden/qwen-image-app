@@ -1,5 +1,5 @@
 """
-Chat business logic for the Qwen-Image application.
+Chat business logic for the qwen-image-app.
 """
 
 import tempfile

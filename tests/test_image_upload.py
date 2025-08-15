@@ -354,12 +354,12 @@ class TestUIIntegration(unittest.TestCase):
         expected_params = [
             'session', 'prompt', 'negative_prompt', 'name',
             'width', 'height', 'steps', 'cfg_scale',
-            'seed', 'randomize', 'apply_template', 'add_magic', 'save_steps',
+            'seed', 'randomize', 'add_magic', 'save_steps',
             'second_stage_steps', 'two_stage_mode', 'input_image', 'noise_interpolation_strength'
         ]
         
         # This would be the expected parameter count for the generate_image call
-        self.assertEqual(len(expected_params), 17)
+        self.assertEqual(len(expected_params), 16)
         
         # Check that input_image and noise_interpolation_strength are included
         self.assertIn('input_image', expected_params)

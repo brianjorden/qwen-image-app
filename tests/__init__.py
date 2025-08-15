@@ -1,3 +1,3 @@
 """
-Test suite for the Qwen-Image application.
+Test suite for the qwen-image-app.
 """

@@ -1,5 +1,5 @@
 """
-Config tab UI for the Qwen-Image application.
+Config tab UI for the qwen-image-app.
 """
 
 import gradio as gr
