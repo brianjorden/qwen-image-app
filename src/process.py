@@ -16,6 +16,7 @@ from .metadata import save_image_with_metadata
 from .gallery import get_session_manager
 from .prompt import add_magic_prompt, detect_language
 from .step import setup_step_callback, clear_cancellation, GenerationCancelledException
+from .inpaint import preprocess_for_inpainting, get_optimal_inpaint_strength
 
 # Global cancellation flag and lock
 _generation_cancelled = threading.Event()
@@ -84,9 +85,11 @@ def generate_image(
     second_stage_steps: Optional[int] = None,
     two_stage_mode: str = "Img2Img Mode",
     input_image: Optional[Image.Image] = None,
+    mask_image: Optional[Image.Image] = None,  # For inpainting mode
     noise_interpolation_strength: Optional[float] = None,
-    img2img_mode: str = "true_img2img",  # "true_img2img" or "noise_interpolation"
+    img2img_mode: str = "true_img2img",  # "true_img2img", "noise_interpolation", or "inpaint"
     img2img_strength: Optional[float] = None,  # For true img2img mode
+    inpaint_strength: Optional[float] = None,  # For inpainting mode
     **kwargs
 ) -> Tuple[Optional[Image.Image], Optional[str]]:
     """Generate a single image with full metadata support.
@@ -108,7 +111,11 @@ def generate_image(
         second_stage_steps: Additional steps for two-stage generation (0 = disabled)
         two_stage_mode: "Img2Img Mode" for noise interpolation
         input_image: Optional input image for img2img generation
+        mask_image: Optional mask image for inpainting generation (white areas will be inpainted)
         noise_interpolation_strength: Strength for img2img transformation (0.0-1.0)
+        img2img_mode: Generation mode ("true_img2img", "noise_interpolation", or "inpaint")
+        img2img_strength: Strength for true img2img mode (0.0-1.0)
+        inpaint_strength: Strength for inpainting mode (0.0-1.0)
         **kwargs: Additional pipeline arguments
         
     Returns:
@@ -132,14 +139,19 @@ def generate_image(
     # Determine generation mode
     is_two_stage = second_stage_steps > 0
     is_img2img = input_image is not None
-    is_true_img2img = is_img2img and img2img_mode == "true_img2img"
+    is_inpaint = mask_image is not None and input_image is not None
+    is_true_img2img = is_img2img and img2img_mode == "true_img2img" and not is_inpaint
     
     # Set default img2img strength if not provided
     if img2img_strength is None:
         img2img_strength = config.default_img2img_strength
     
-    # Import edit functions based on img2img mode
-    if is_img2img:
+    # Set default inpaint strength if not provided
+    if inpaint_strength is None:
+        inpaint_strength = get_optimal_inpaint_strength("medium")
+    
+    # Import edit functions based on mode
+    if is_img2img and not is_inpaint:
         if is_true_img2img:
             from .edit import preprocess_for_img2img
         else:
@@ -203,7 +215,10 @@ def generate_image(
                 manager.load_lora(lora['path'], lora.get('strength', 1.0))
     
     # Get appropriate pipeline based on mode
-    if is_true_img2img:
+    if is_inpaint:
+        pipe = get_pipeline("inpaint")
+        print("Using inpainting pipeline")
+    elif is_true_img2img:
         pipe = get_pipeline("img2img")
         print("Using true img2img pipeline")
     else:
@@ -244,9 +259,19 @@ def generate_image(
     pipeline_kwargs.pop('save_steps', None)
     gen_args.update(pipeline_kwargs)
     
-    # Handle img2img preprocessing
+    # Handle img2img and inpainting preprocessing
     processed_input_image = None
-    if is_img2img:
+    processed_mask_image = None
+    if is_inpaint:
+        try:
+            processed_input_image, processed_mask_image, status = preprocess_for_inpainting(
+                input_image, mask_image, width, height, inpaint_strength
+            )
+            print(f"Inpainting: {status}")
+        except ValueError as e:
+            print(f"Inpainting preprocessing failed: {e}")
+            return None, None
+    elif is_img2img:
         try:
             if is_true_img2img:
                 processed_input_image, status = preprocess_for_img2img(input_image, width, height, img2img_strength)
@@ -259,7 +284,11 @@ def generate_image(
             return None, None
     
     generation_type = ""
-    if is_img2img and is_two_stage:
+    if is_inpaint and is_two_stage:
+        generation_type = "(Inpainting + Two-stage)"
+    elif is_inpaint:
+        generation_type = "(Inpainting)"
+    elif is_img2img and is_two_stage:
         img_mode = "True Img2img" if is_true_img2img else "Noise Interpolation"
         generation_type = f"({img_mode} + Two-stage)"
     elif is_img2img:
@@ -270,7 +299,9 @@ def generate_image(
     
     print(f"Generating '{name}' in session '{session}' {generation_type}")
     print(f"Settings: {width}x{height}, steps={num_inference_steps}{f'+{second_stage_steps}' if is_two_stage else ''}, cfg={true_cfg_scale}, seed={seed}")
-    if is_img2img:
+    if is_inpaint:
+        print(f"Inpainting strength: {inpaint_strength}")
+    elif is_img2img:
         if is_true_img2img:
             print(f"True img2img strength: {img2img_strength}")
         else:
@@ -285,8 +316,14 @@ def generate_image(
         # Prepare generation arguments
         stage1_gen_args = gen_args.copy()
         
-        # Handle img2img input
-        if is_img2img:
+        # Handle input mode
+        if is_inpaint:
+            # Use inpainting pipeline with image, mask, and strength
+            stage1_gen_args['image'] = processed_input_image
+            stage1_gen_args['mask_image'] = processed_mask_image
+            stage1_gen_args['strength'] = inpaint_strength
+            print(f"Using inpainting with strength {inpaint_strength}")
+        elif is_img2img:
             if is_true_img2img:
                 # Use true img2img pipeline with image and strength
                 stage1_gen_args['image'] = processed_input_image
@@ -337,11 +374,14 @@ def generate_image(
                 'model_info': manager.model_info.copy(),
                 'is_stage1_of_two_stage': True,
                 'two_stage_mode': two_stage_mode,
-                'img2img_mode': img2img_mode if is_img2img else None,
+                'img2img_mode': img2img_mode if (is_img2img or is_inpaint) else None,
                 'is_true_img2img': is_true_img2img,
+                'is_inpaint': is_inpaint,
                 'noise_interpolation_strength': noise_interpolation_strength if (two_stage_mode == "Img2Img Mode" or (is_img2img and not is_true_img2img)) else None,
                 'img2img_strength': img2img_strength if is_true_img2img else None,
-                'input_image_used': is_img2img
+                'inpaint_strength': inpaint_strength if is_inpaint else None,
+                'input_image_used': is_img2img or is_inpaint,
+                'mask_image_used': is_inpaint
             }
             
             if config.enable_metadata_embed:
@@ -396,15 +436,18 @@ def generate_image(
             # Generation mode metadata
             'is_two_stage': is_two_stage,
             'is_img2img': is_img2img,
-            'img2img_mode': img2img_mode if is_img2img else None,
+            'is_inpaint': is_inpaint,
+            'img2img_mode': img2img_mode if (is_img2img or is_inpaint) else None,
             'is_true_img2img': is_true_img2img,
             'two_stage_mode': two_stage_mode if is_two_stage else None,
             'noise_interpolation_strength': noise_interpolation_strength if (is_two_stage or (is_img2img and not is_true_img2img)) else None,
             'img2img_strength': img2img_strength if is_true_img2img else None,
+            'inpaint_strength': inpaint_strength if is_inpaint else None,
             'first_stage_steps': stage1_steps if is_two_stage else None,
             'second_stage_steps': second_stage_steps if is_two_stage else None,
             'first_stage_image_path': str(first_stage_path) if first_stage_path else None,
-            'input_image_used': is_img2img
+            'input_image_used': is_img2img or is_inpaint,
+            'mask_image_used': is_inpaint
         }
         
         # Save with metadata

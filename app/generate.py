@@ -62,12 +62,12 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
                     sources=["upload", "clipboard"]
                 )
                 with gr.Column():
-                    # Img2img mode selector
+                    # Generation mode selector
                     img2img_mode = gr.Radio(
-                        choices=["true_img2img", "noise_interpolation"],
+                        choices=["true_img2img", "noise_interpolation", "inpaint"],
                         value="true_img2img",
-                        label="Img2img Mode",
-                        info="True Img2img: Proper diffusion process | Noise Interpolation: Creative mixing",
+                        label="Generation Mode",
+                        info="True Img2img: Proper diffusion | Noise Interpolation: Creative mixing | Inpaint: Fill masked areas",
                         visible=True,
                         interactive=False  # Initially grayed out, enabled when image uploaded
                     )
@@ -93,8 +93,79 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
                         interactive=False  # Initially grayed out, enabled when mode is selected
                     )
                     
-                    clear_input_btn = gr.Button("Clear Input Image", visible=False)
-                    use_as_input_btn = gr.Button("Use Generated as Input", visible=True)
+                    inpaint_strength = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.6,
+                        step=0.05,
+                        label="Inpainting Strength (0.0 = minimal change, 1.0 = maximum change)",
+                        visible=False,
+                        interactive=False  # Initially hidden and grayed out
+                    )
+                    
+            # Mask creation for inpainting (placed after input image row)
+            with gr.Row(visible=False) as mask_row:
+                with gr.Column():
+                    mask_method = gr.Radio(
+                        choices=["Draw Mask", "Upload Mask"],
+                        value="Draw Mask",
+                        label="Mask Method",
+                        info="Draw directly on image or upload a pre-made mask"
+                    )
+                    
+                    # ImageEditor for drawing masks directly on the image
+                    mask_editor = gr.ImageEditor(
+                        label="Draw Mask (Paint white areas to inpaint)",
+                        type="pil",
+                        brush=gr.Brush(
+                            colors=["#FFFFFF", "#000000"],  # White for inpaint areas, black for eraser
+                            default_color="#FFFFFF",
+                            default_size=20
+                        ),
+                        layers=True,
+                        transforms=["crop"],  # Only allow crop to keep focus on mask drawing
+                        visible=True,
+                        interactive=True
+                    )
+                    
+                    # Traditional mask upload (hidden by default)
+                    mask_upload = gr.Image(
+                        label="Upload Mask (White areas will be inpainted)",
+                        type="pil",
+                        sources=["upload", "clipboard"],
+                        visible=False,
+                        interactive=True
+                    )
+                    
+                with gr.Column():
+                    with gr.Row():
+                        clear_mask_btn = gr.Button("Clear Mask", size="sm")
+                        auto_mask_btn = gr.Button("Auto Mask Center", size="sm")
+                    
+                    # Brush size control for drawing
+                    brush_size = gr.Slider(
+                        minimum=5,
+                        maximum=100,
+                        value=20,
+                        step=5,
+                        label="Brush Size",
+                        visible=True
+                    )
+                    
+                    # Instructions
+                    gr.Markdown(
+                        """
+                        **Drawing Instructions:**
+                        - White: Areas to inpaint
+                        - Black: Areas to preserve/erase mask
+                        - Use layers for complex masks
+                        """,
+                        visible=True
+                    )
+                    
+            with gr.Row():                    
+                clear_input_btn = gr.Button("Clear Input Image", visible=False)
+                use_as_input_btn = gr.Button("Use Generated as Input", visible=True)
             
             # Generation settings
             with gr.Row():
@@ -290,7 +361,7 @@ def create_generation_tab(session_state: gr.State, shared_image_state: gr.State,
         session_dropdown, refresh_sessions_btn, session_state,
         prompt_input, prompt_tokens, enhance_prompt_btn,
         negative_prompt_input, negative_tokens, enhance_negative_btn,
-        input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn,
+        input_image, mask_method, mask_editor, mask_upload, auto_mask_btn, brush_size, img2img_mode, noise_interpolation_strength, img2img_strength, inpaint_strength, mask_row, clear_input_btn, clear_mask_btn, use_as_input_btn,
         aspect_ratio, width_input, height_input,
         steps_input, cfg_scale_input, seed_input, randomize_seed, continuous_generation,
         name_input, add_magic, save_steps, second_stage_steps,
@@ -311,7 +382,7 @@ def _setup_generation_handlers(
     session_dropdown, refresh_sessions_btn, session_state,
     prompt_input, prompt_tokens, enhance_prompt_btn,
     negative_prompt_input, negative_tokens, enhance_negative_btn,
-    input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn,
+    input_image, mask_method, mask_editor, mask_upload, auto_mask_btn, brush_size, img2img_mode, noise_interpolation_strength, img2img_strength, inpaint_strength, mask_row, clear_input_btn, clear_mask_btn, use_as_input_btn,
     aspect_ratio, width_input, height_input,
     steps_input, cfg_scale_input, seed_input, randomize_seed, continuous_generation,
     name_input, add_magic, save_steps, second_stage_steps,
@@ -380,16 +451,54 @@ def _setup_generation_handlers(
                 input_metadata_accordion, input_metadata_display, input_image_metadata]
     )
     
-    # Img2img mode change handler
+    # Generation mode change handler
     img2img_mode.change(
         fn=_handle_img2img_mode_change,
         inputs=[img2img_mode],
-        outputs=[noise_interpolation_strength, img2img_strength]
+        outputs=[noise_interpolation_strength, img2img_strength, inpaint_strength, mask_row]
     )
     
     clear_input_btn.click(
-        fn=lambda: (None, gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "", {}),
-        outputs=[input_image, img2img_mode, noise_interpolation_strength, img2img_strength, clear_input_btn, use_as_input_btn, input_metadata_accordion, input_metadata_display, input_image_metadata]
+        fn=lambda: (None, None, None, gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=True, interactive=False), gr.update(visible=False, interactive=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "", {}),
+        outputs=[input_image, mask_editor, mask_upload, img2img_mode, noise_interpolation_strength, img2img_strength, inpaint_strength, mask_row, clear_input_btn, use_as_input_btn, input_metadata_accordion, input_metadata_display, input_image_metadata]
+    )
+    
+    # Mask method change handler
+    mask_method.change(
+        fn=_handle_mask_method_change,
+        inputs=[mask_method],
+        outputs=[mask_editor, mask_upload]
+    )
+    
+    # Auto mask button handler
+    auto_mask_btn.click(
+        fn=_create_auto_mask,
+        inputs=[input_image],
+        outputs=[mask_upload]  # Put auto mask in upload component
+    )
+    
+    # Clear mask handlers  
+    clear_mask_btn.click(
+        fn=lambda: (None, None),
+        outputs=[mask_editor, mask_upload]
+    )
+    
+    # Brush size change handler
+    brush_size.change(
+        fn=lambda size: gr.update(brush=gr.Brush(
+            colors=["#FFFFFF", "#000000"],
+            default_color="#FFFFFF", 
+            default_size=size
+        )),
+        inputs=[brush_size],
+        outputs=[mask_editor]
+    )
+    
+    # Image editor change handler to populate with input image
+    input_image.change(
+        fn=lambda img: img if img else None,
+        inputs=[input_image],
+        outputs=[mask_editor]
     )
     
     use_as_input_btn.click(
@@ -458,7 +567,7 @@ def _setup_generation_handlers(
         session_dropdown, prompt_input, negative_prompt_input, name_input,
         width_input, height_input, steps_input, cfg_scale_input,
         seed_input, randomize_seed, add_magic, save_steps, second_stage_steps,
-        two_stage_mode, input_image, img2img_mode, noise_interpolation_strength, img2img_strength
+        two_stage_mode, input_image, mask_method, mask_editor, mask_upload, img2img_mode, noise_interpolation_strength, img2img_strength, inpaint_strength
     ]
     
     if config.enable_lora:
@@ -547,12 +656,31 @@ def _generate_image_handler(*args, current_metadata_state) -> Tuple:
     """Handle image generation."""
     config = get_config()
     
+    # Debug: print argument count
+    print(f"Total args received: {len(args)}")
+    print(f"Args 8-22 count: {len(args[8:22])}")
+    
     # Unpack arguments
     session, prompt, negative_prompt, name = args[:4]
     width, height, steps, cfg_scale = args[4:8]
-    seed, randomize, add_magic, save_steps, second_stage_steps, two_stage_mode, input_image, img2img_mode, noise_interpolation_strength, img2img_strength = args[8:18]
     
-    lora_args = args[18:] if config.enable_lora else []
+    # More defensive unpacking for the variable part
+    remaining_args = args[8:]
+    if len(remaining_args) < 14:
+        print(f"Warning: Expected 14 args from position 8, got {len(remaining_args)}")
+        # Pad with None values if missing
+        remaining_args = list(remaining_args) + [None] * (14 - len(remaining_args))
+    
+    seed, randomize, add_magic, save_steps, second_stage_steps, two_stage_mode, input_image, mask_method, mask_editor, mask_upload, img2img_mode, noise_interpolation_strength, img2img_strength, inpaint_strength = remaining_args[:14]
+    
+    # Extract the actual mask from the components
+    mask_image = None
+    if mask_method == "Draw Mask":
+        mask_image = _extract_mask_from_editor(mask_editor)
+    elif mask_method == "Upload Mask":
+        mask_image = mask_upload
+    
+    lora_args = args[22:] if config.enable_lora else []
     
     try:
         # Handle random seed
@@ -588,9 +716,11 @@ def _generate_image_handler(*args, current_metadata_state) -> Tuple:
             second_stage_steps=second_stage_steps,
             two_stage_mode=two_stage_mode,
             input_image=input_image,
+            mask_image=mask_image,
             img2img_mode=img2img_mode,
             noise_interpolation_strength=noise_interpolation_strength,
-            img2img_strength=img2img_strength
+            img2img_strength=img2img_strength,
+            inpaint_strength=inpaint_strength
         )
         
         if image:
@@ -626,6 +756,81 @@ def _apply_metadata_settings(metadata: Dict[str, Any]) -> List:
     updates.append("Custom")  # Set aspect ratio to custom
     
     return updates
+
+
+def _extract_mask_from_editor(editor_data):
+    """Extract mask from ImageEditor data structure."""
+    if editor_data is None:
+        return None
+    
+    try:
+        # ImageEditor returns a dict with 'background', 'layers', 'composite'
+        if isinstance(editor_data, dict):
+            # If there are layers (drawn content), use the composite
+            if 'layers' in editor_data and editor_data['layers']:
+                # Use the composite image which combines all layers
+                mask = editor_data.get('composite')
+                if mask:
+                    # Convert to grayscale mask
+                    mask = mask.convert('L')
+                    return mask
+            
+            # If no layers but has background, return None (no mask drawn)
+            return None
+        
+        # If it's a direct PIL image (shouldn't happen with ImageEditor but fallback)
+        elif hasattr(editor_data, 'convert'):
+            return editor_data.convert('L')
+            
+    except Exception as e:
+        print(f"Error extracting mask from editor: {e}")
+        return None
+    
+    return None
+
+
+def _create_auto_mask(image, mask_size_percent=0.3):
+    """Create a rectangular mask in the center of the image."""
+    if image is None:
+        return None
+    
+    try:
+        from PIL import Image, ImageDraw
+        width, height = image.size
+        
+        # Calculate center rectangle
+        mask_width = int(width * mask_size_percent)
+        mask_height = int(height * mask_size_percent)
+        
+        x1 = (width - mask_width) // 2
+        y1 = (height - mask_height) // 2
+        x2 = x1 + mask_width
+        y2 = y1 + mask_height
+        
+        # Create mask (black background, white rectangle)
+        mask = Image.new('L', (width, height), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle([x1, y1, x2, y2], fill=255)
+        
+        return mask
+        
+    except Exception as e:
+        print(f"Error creating auto mask: {e}")
+        return None
+
+
+def _handle_mask_method_change(mask_method):
+    """Handle switching between draw and upload mask methods."""
+    if mask_method == "Draw Mask":
+        return (
+            gr.update(visible=True),   # Show mask_editor
+            gr.update(visible=False)   # Hide mask_upload
+        )
+    else:  # Upload Mask
+        return (
+            gr.update(visible=False),  # Hide mask_editor
+            gr.update(visible=True)    # Show mask_upload
+        )
 
 
 def _handle_image_upload(image):
@@ -875,14 +1080,25 @@ def _apply_input_metadata(metadata):
 
 
 def _handle_img2img_mode_change(img2img_mode):
-    """Handle img2img mode change to enable/disable appropriate strength sliders."""
+    """Handle mode change to enable/disable appropriate strength sliders and mask controls."""
     if img2img_mode == "true_img2img":
         return (
             gr.update(visible=True, interactive=False),  # Disable noise_interpolation_strength
-            gr.update(visible=True, interactive=True)    # Enable img2img_strength
+            gr.update(visible=True, interactive=True),   # Enable img2img_strength
+            gr.update(visible=False, interactive=False), # Hide inpaint_strength
+            gr.update(visible=False)                     # Hide mask_row
         )
-    else:  # noise_interpolation mode
+    elif img2img_mode == "noise_interpolation":
         return (
             gr.update(visible=True, interactive=True),   # Enable noise_interpolation_strength
-            gr.update(visible=True, interactive=False)   # Disable img2img_strength
+            gr.update(visible=True, interactive=False),  # Disable img2img_strength
+            gr.update(visible=False, interactive=False), # Hide inpaint_strength
+            gr.update(visible=False)                     # Hide mask_row
+        )
+    else:  # inpaint mode
+        return (
+            gr.update(visible=True, interactive=False),  # Disable noise_interpolation_strength
+            gr.update(visible=True, interactive=False),  # Disable img2img_strength
+            gr.update(visible=True, interactive=True),   # Enable inpaint_strength
+            gr.update(visible=True)                      # Show mask_row
         )

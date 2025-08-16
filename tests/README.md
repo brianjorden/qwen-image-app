@@ -46,6 +46,28 @@ Tests the new true img2img pipeline functionality:
 - Tests UI mode switching and strength slider visibility
 - Tests comparison between noise interpolation and true img2img approaches
 
+### `test_inpaint_pipeline.py`
+Tests the inpainting pipeline functionality:
+- Tests inpainting pipeline loading and component assembly
+- Tests pipeline mode selection (txt2img, img2img, inpaint)
+- Tests mask image validation and format conversion (RGB to grayscale)
+- Tests input image validation for inpainting
+- Tests optimal strength presets for different inpainting levels
+- Tests inpainting parameter validation (image, mask, strength, dimensions)
+- Tests mask coverage validation (too small/large coverage detection)
+- Tests mask generation from bounding box coordinates
+- Tests integration with model manager and component loading
+
+### `test_inpaint.py`
+Tests inpainting preprocessing and utilities:
+- Tests image and mask resizing for inpainting generation
+- Tests mask coverage analysis and validation
+- Tests mask creation utilities (bounding box to mask conversion)
+- Tests inpainting input preparation and validation
+- Tests edge cases for mask generation (full image, single pixel, thin lines)
+- Tests mask validation warnings and error handling
+- Tests geometric mask creation for various shapes and positions
+
 ### `test_image_upload.py`
 Tests the image upload and img2img functionality:
 - Tests image validation and preprocessing from various sources
@@ -73,6 +95,8 @@ python tests/test_imports.py
 python tests/test_two_stage_generation.py
 python tests/test_noise_interpolation.py
 python tests/test_img2img_pipeline.py
+python tests/test_inpaint_pipeline.py
+python tests/test_inpaint.py
 python tests/test_image_upload.py
 ```
 

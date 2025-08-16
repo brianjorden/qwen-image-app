@@ -34,7 +34,7 @@ def embed_metadata(image: Image.Image, metadata: Dict[str, Any]) -> Image.Image:
     
     # Also add key fields as separate entries for compatibility
     for key in ['prompt', 'negative_prompt', 'seed', 'steps', 'cfg_scale', 
-                'width', 'height', 'model_info', 'img2img_mode', 'is_true_img2img']:
+                'width', 'height', 'model_info', 'img2img_mode', 'is_true_img2img', 'is_inpaint', 'inpaint_strength', 'mask_image_used']:
         if key in metadata:
             value = metadata[key]
             if isinstance(value, dict):
@@ -164,6 +164,12 @@ def format_metadata_display(metadata: Dict[str, Any]) -> str:
         lines.append("Img2Img Generation: Yes")
         if 'noise_interpolation_strength' in metadata and metadata['noise_interpolation_strength'] is not None:
             lines.append(f"Img2Img Strength: {metadata['noise_interpolation_strength']}")
+    
+    # Show inpainting info
+    if 'is_inpaint' in metadata and metadata['is_inpaint']:
+        lines.append("Inpainting Generation: Yes")
+        if 'inpaint_strength' in metadata and metadata['inpaint_strength'] is not None:
+            lines.append(f"Inpainting Strength: {metadata['inpaint_strength']}")
     
     # Show two-stage info
     if 'is_two_stage' in metadata and metadata['is_two_stage']:
